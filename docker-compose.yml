@@ -1,0 +1,32 @@
+services:
+  neo4j:
+    image: neo4j:5
+    container_name: mirofish-neo4j
+    environment:
+      - NEO4J_AUTH=neo4j/mirofish_password
+      - NEO4J_PLUGINS=["apoc"]
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j_data:/data
+    restart: unless-stopped
+
+  mirofish:
+    image: ghcr.io/666ghj/mirofish:latest
+    # Mirror image (use if pulling is slow)
+    # image: ghcr.nju.edu.cn/666ghj/mirofish:latest
+    container_name: mirofish
+    depends_on:
+      - neo4j
+    env_file:
+      - .env
+    ports:
+      - "3000:3000"
+      - "5001:5001"
+    restart: unless-stopped
+    volumes:
+      - ./backend/uploads:/app/backend/uploads
+
+volumes:
+  neo4j_data:
