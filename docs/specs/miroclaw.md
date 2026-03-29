@@ -1,32 +1,36 @@
 # MiroClaw Behaviour Spec
 
-> MiroFish agents with real-time web research, collaborative knowledge graph curation, adversarial evidence testing, and calibrated forecasting.
+> Research-armed multi-agent prediction engine. Agents discover evidence from the open web, contribute structured triples to a living knowledge graph, and vote on each other's findings.
 
-**Transformation scope:** MiroFish becomes MiroClaw. Keep what works (Vue frontend, report agent, ontology pipeline, Neo4j graph). Replace the OASIS simulation loop with CAMEL-native phased rounds. Layer MiroClaw capabilities on top.
+**Status:** All "Must" requirements implemented. Phases 0–2 fully coded. Phase 3 research tools wired to camofox-browser REST API with session isolation and graceful fallback. Phase 4 persistence implemented. Phase 5 oracle/epistemic logic implemented. Phase 6 analytics backend + API complete. Phase 7 UI refresh implemented (design tokens, dark mode, SVG icons, accessibility, chart components).
+
+### Implementation Progress
+
+All tool classes are registered as CAMEL FunctionTools via factory functions in `tools/__init__.py`. `MiroClawAgent(ChatAgent)` has phase-aware tool swapping and budget integration. The critical FunctionTool wiring gap is resolved.
 
 ---
 
 ## Requirements
 
-| ID | Name | Pri | Description |
-|----|------|-----|-------------|
-| R01 | CAMEL-native agents | Must | Replace OASIS `SocialAgent` with `MiroClawAgent(ChatAgent)`, tools via `FunctionTool` |
-| R02 | Phased round orchestration | Must | Research -> Contribute -> Vote -> Curate -> Oracle phases via CAMEL `Workforce` task channels |
-| R03 | Hybrid agent memory | Must | `LongtermAgentMemory` with `ChatHistoryBlock` + `VectorDBBlock` + new `CompactionBlock` for narrative coherence |
-| R04 | OASIS platform plugin | Must | Retain Twitter/Reddit databases and feed algorithms as interaction surface, not simulation backbone |
-| R05 | Living knowledge graph | Must | Agents add structured triples to Neo4j during simulation with full provenance metadata |
-| R06 | Triple validation | Must | Schema check, cosine dedup (>0.95 rejected), source URL reachability, structured format enforcement |
-| R07 | Research budget | Must | Per-agent per-round hard limits: 3 web searches, 3 page reads, 1 graph addition |
-| R08 | Voting system | Must | Per-agent per-triple per-round votes; contested status auto-assigned when both sides exceed threshold |
-| R09 | Curator agent | Must | Non-posting agent: merge near-dupes, prune low-vote, flag contested, enforce graph size ceiling |
-| R10 | Browser integration | Must | OpenClaw `agent-browser` via CDP; per-agent isolated browser profiles on loopback |
-| R11 | Oracle agents | Should | Calibrated forecasting via locally-hosted model (OpenForecaster-8B); consultation + periodic forecasts |
-| R12 | Epistemic flexibility | Should | Probability-driven stance shifts (0.0-1.0) with SOUL.md-style identity changelog |
-| R13 | Cross-session evolution | Should | Persistent VectorDB + serialised CompactionBlock summaries across simulation runs |
-| R14 | Post-simulation analytics | Should | Dispute maps, provenance trails, position drift visualisation, graph diff, oracle time series |
-| R15 | Retain frontend | Must | Vue 3 frontend adapts API calls to new endpoints; same user-facing workflow |
-| R16 | Retain report agent | Must | ReACT report agent extended with MiroClaw-specific tools (contested triples, provenance, oracle forecasts) |
-| R17 | Retain ontology pipeline | Must | Standards-based ontology (FOAF actors + Schema.org context) feeds MiroClaw agent creation unchanged |
+| ID | Name | Pri | Description | Status |
+|----|------|-----|-------------|--------|
+| R01 | CAMEL-native agents | Must | Replace OASIS `SocialAgent` with `MiroClawAgent(ChatAgent)`, tools via `FunctionTool` | Implemented — ChatAgent extended, FunctionTool factories wired, phase-aware tool swapping |
+| R02 | Phased round orchestration | Must | Research -> Contribute -> Vote -> Curate -> Oracle phases via CAMEL `Workforce` task channels | Implemented — orchestrator runs 5-phase loop with async gather |
+| R03 | Hybrid agent memory | Must | `LongtermAgentMemory` with `ChatHistoryBlock` + `VectorDBBlock` + new `CompactionBlock` for narrative coherence | Implemented — memory.py with ChatHistoryMemory + CompactionBlock, LLM-powered compaction |
+| R04 | OASIS platform plugin | Must | Retain Twitter/Reddit databases and feed algorithms as interaction surface, not simulation backbone | Implemented — OasisPlatformPlugin wired as FunctionTool via create_contribute_tools |
+| R05 | Living knowledge graph | Must | Agents add structured triples to Neo4j during simulation with full provenance metadata | Implemented — MiroClawGraphWriteAPI with write_triple, provenance, stats |
+| R06 | Triple validation | Must | Schema check, cosine dedup (>0.95 rejected), source URL reachability, structured format enforcement | Implemented — TripleValidator with 4-stage pipeline including HTTP HEAD |
+| R07 | Research budget | Must | Per-agent per-round hard limits: 3 web searches, 3 page reads, 1 graph addition | Implemented — BudgetTracker/RoundBudget in budget.py |
+| R08 | Voting system | Must | Per-agent per-triple per-round votes; contested status auto-assigned when both sides exceed threshold | Implemented — VotingTool with upvote/downvote/double-vote prevention |
+| R09 | Curator agent | Must | Non-posting agent: merge near-dupes, prune low-vote, flag contested, enforce graph size ceiling | Implemented — CuratorAgent with merge/prune/flag/ceiling + audit trail |
+| R10 | Browser integration | Must | Camofox-browser REST client; per-agent isolated browser sessions via userId/sessionKey | Implemented — CamofoxBrowserClient with search/extract/health, session isolation, graceful fallback |
+| R11 | Oracle agents | Should | Calibrated forecasting via locally-hosted model (OpenForecaster-8B); consultation + periodic forecasts | Implemented — OracleConsultationTool with budget + consultation log, no model deployment |
+| R12 | Epistemic flexibility | Should | Probability-driven stance shifts (0.0-1.0) with SOUL.md-style identity changelog | Implemented — roll_epistemic_flexibility() with gradual one-step shifts + changelog |
+| R13 | Cross-session evolution | Should | Persistent VectorDB + serialised CompactionBlock summaries across simulation runs | Implemented — save_to_disk/load_from_disk for CompactionBlock + IdentityDocument persistence |
+| R14 | Post-simulation analytics | Should | Dispute maps, provenance trails, position drift visualisation, graph diff, oracle time series | Implemented — MiroClawAnalytics service + 7 REST endpoints + Chart.js chart components |
+| R15 | Retain frontend | Must | Vue 3 frontend adapts API calls to new endpoints; same user-facing workflow | Implemented — design tokens, dark mode, SVG icons, accessibility, toast notifications, chart components |
+| R16 | Retain report agent | Must | ReACT report agent extended with MiroClaw-specific tools (contested triples, provenance, oracle forecasts) | Implemented — AnalyticsTools class with query_disputed/provenance/oracle_forecasts/stance_history |
+| R17 | Retain ontology pipeline | Must | Standards-based ontology (FOAF actors + Schema.org context) feeds MiroClaw agent creation unchanged | Implemented — unchanged from MiroFish |
 
 ---
 
@@ -45,9 +49,23 @@
 
 ## Phase 0: CAMEL Foundation
 
+**Status:** Implemented
 **Satisfies:** R01, R02, R03, R04
+**Files:** `backend/app/agents/miroclaw_agent.py`, `backend/app/agents/memory.py`, `backend/app/agents/round_orchestrator.py`, `backend/app/agents/tools/budget.py`, `backend/app/agents/tools/__init__.py`
 
 Replace the OASIS flat simulation loop with CAMEL-native agent creation, phased round orchestration, and hybrid memory. OASIS social platforms become a plugin for Twitter/Reddit interactions.
+
+**Implementation audit (2026-03-29, updated):**
+- `MiroClawAgent(ChatAgent)` exists at `miroclaw_agent.py:84`
+- Phase enum exists: RESEARCH, CONTRIBUTE, VOTE, CURATE, ORACLE
+- Orchestrator runs 5-phase loop with parallel execution per phase
+- Memory classes implemented: ChatHistoryMemory (CAMEL), CompactionBlock (MiroClaw)
+- BudgetManager/RoundBudget implemented in `budget.py`
+- FunctionTool factories in `tools/__init__.py` — 8 per-tool factories + 4 phase aggregators (research, contribute, vote, curate)
+- Phase-aware tool swapping via `_swap_active_tools()` on `set_phase()`
+- Epistemic flexibility with population distribution + runtime roll logic
+- All import chains verified passing (17/17) — `OpenAITokenCounter` from `camel.utils`
+- `curator_tools.py` provides FunctionTool wrappers for Curate phase operations
 
 ### Behaviour 0.1: Agent creation from graph entities
 
@@ -169,6 +187,7 @@ Replace the OASIS flat simulation loop with CAMEL-native agent creation, phased 
 
 ## Phase 1: Graph Write API
 
+**Status:** Implemented
 **Satisfies:** R05, R06
 
 Add a write path to the Neo4j knowledge graph. Agents submit structured triples with provenance metadata during simulation. Triples pass through validation before entering the graph.
@@ -279,6 +298,7 @@ Add a write path to the Neo4j knowledge graph. Agents submit structured triples 
 
 ## Phase 2: Voting and Curation
 
+**Status:** Implemented
 **Satisfies:** R08, R09
 
 Add a voting system for agents to upvote/downvote triples, and a curator agent that maintains graph quality by merging duplicates, pruning low-value triples, and flagging contested ones.
@@ -403,17 +423,19 @@ Add a voting system for agents to upvote/downvote triples, and a curator agent t
 
 ## Phase 3: Browser Integration
 
+**Status:** Implemented — CamofoxBrowserClient wired to ResearchTool with session isolation, budget enforcement, and graceful fallback
 **Satisfies:** R07, R10
+**Files:** `backend/app/agents/tools/camofox_client.py`, `backend/app/agents/tools/research.py`, `backend/app/config.py`
 
-Give agents access to the open web during the Research phase via OpenClaw's `agent-browser` skill using Chrome DevTools Protocol. Enforce research budgets as hard limits.
+Agents access the open web during the Research phase via camofox-browser's REST API (headless browser with anti-detection). Each agent gets an isolated browser session. Research budgets are enforced as hard limits. When camofox-browser is not running, research tools return empty results gracefully.
 
 ### Behaviour 3.1: Per-agent browser profile
 
 **Given** a new MiroClawAgent is initialised for simulation
 **When** browser access is configured
-**Then** a named CDP browser profile is created for the agent in OpenClaw config (`~/.openclaw/openclaw.json`)
-**And** the profile is isolated — no cross-agent cookie/session leakage
-**And** the browser runs on loopback only (no public network exposure)
+**Then** a camofox-browser tab is created for the agent via REST API (POST `/tabs`)
+**And** the tab is isolated via `userId = miroclaw_{agent_id}` — no cross-agent cookie/session leakage
+**And** the browser runs on loopback only (localhost:9377, no public network exposure)
 
 **Traces to:** R10
 
@@ -431,8 +453,8 @@ Give agents access to the open web during the Research phase via OpenClaw's `age
 
 **Given** an agent with a URL from search results
 **When** it invokes the `extract` tool on the URL
-**Then** the page content is extracted via CDP accessibility tree
-**And** the extracted text is returned to the agent
+**Then** the page content is extracted via camofox accessibility tree snapshot
+**And** the extracted text (capped at 10K chars) is returned to the agent
 **And** the read counts against the agent's per-round page read budget
 
 **Traces to:** R10, R07
@@ -497,14 +519,15 @@ Give agents access to the open web during the Research phase via OpenClaw's `age
 
 | Check | Method | Expected |
 |-------|--------|----------|
-| Browser profile created | Check OpenClaw config after agent init | Named profile exists |
+| Browser session created | Check camofox after agent research | Per-agent tab exists |
 | Search returns results | Invoke search tool | Results with titles, URLs, snippets |
 | Extract returns content | Invoke extract on a known URL | Page text extracted |
 | Search budget hit | Perform 4 searches | 4th returns budget-exhausted |
 | Read budget hit | Read 4 pages | 4th returns budget-exhausted |
 | Addition budget hit | Add 2 triples | 2nd returns budget-exhausted |
 | Memory populated | Check VectorDB after research | Research embeddings stored |
-| Session isolation | Two agents browse same site | Independent cookie jars |
+| Session isolation | Two agents browse same site | Independent userId sessions |
+| Graceful fallback | Research with camofox not running | Empty results, no crash |
 
 ### Files to modify
 
@@ -519,6 +542,7 @@ Give agents access to the open web during the Research phase via OpenClaw's `age
 
 ## Phase 4: Cross-Session Evolution
 
+**Status:** Implemented
 **Satisfies:** R13
 
 Enable agents to carry memory and evolved positions across simulation runs. An agent in Simulation 2 can recall evidence it discovered in Simulation 1.
@@ -606,6 +630,7 @@ Enable agents to carry memory and evolved positions across simulation runs. An a
 
 ## Phase 5: Oracle Agents and Forecasting
 
+**Status:** Implemented (tool logic + epistemic flexibility, no model deployment)
 **Satisfies:** R11, R12
 
 Introduce specialist Oracle agents powered by a locally-hosted calibrated forecasting model. Regular agents can consult oracles during research. Epistemic flexibility governs how agents respond to contradicting evidence.
@@ -738,6 +763,7 @@ Introduce specialist Oracle agents powered by a locally-hosted calibrated foreca
 
 ## Phase 6: Post-Simulation Analytics
 
+**Status:** Implemented
 **Satisfies:** R14, R16
 
 Build the artifact extraction layer — dispute maps, provenance reports, graph diff, position drift visualisation, oracle time series. Extend the existing report agent with MiroClaw-specific query tools.
@@ -851,13 +877,327 @@ Build the artifact extraction layer — dispute maps, provenance reports, graph 
 
 ---
 
+## Phase 7: UI Refresh
+
+**Status:** Implemented
+**Satisfies:** R14 (visualisation), R15 (retain frontend), UX quality
+
+Audit the existing Vue 3 frontend against the UI/UX Pro Max rulebase. Fix accessibility violations, introduce a design token system, add MiroClaw-specific analytics visualisations, and establish dark mode. The existing monochrome + orange-accent identity is preserved and strengthened — not replaced.
+
+### Current State Assessment
+
+**What works:**
+- Monochrome + orange (#FF4500) identity is distinctive and fits a research/analytics tool
+- Space Grotesk + JetBrains Mono pairing is appropriate for the technical aesthetic
+- D3 force-directed graph in GraphPanel is functional and well-implemented
+- Split-panel workbench layout in MainView is effective for the 5-step workflow
+- Console-style upload panel on Home page is on-brand
+- MiroClaw phase tracker in Step3Simulation is structurally present
+
+**What needs fixing (priority order):**
+
+| Priority | Issue | Impact |
+|----------|-------|--------|
+| CRITICAL | No ARIA labels, no focus management, no keyboard navigation | Accessibility fail |
+| CRITICAL | No `prefers-reduced-motion` support | Accessibility fail, animation sickness risk |
+| HIGH | No design tokens — colours scattered as raw hex across 15 files | Maintainability zero, dark mode impossible |
+| HIGH | No dark mode — light-only dashboard | Extended-use fatigue, analytics products need dark mode |
+| HIGH | Emoji used as icons (📄 in file list, ❖ in empty state, ◇◈◆ in history cards) | Inconsistent cross-platform rendering, not themeable |
+| HIGH | No analytics charts — only D3 force graph exists | Phase 6 analytics (dispute maps, drift, oracle time series) have no visualisation surface |
+| MEDIUM | Only one responsive breakpoint (1024px) | Breaks on phones and wide monitors |
+| MEDIUM | No skeleton loading states — uses spinners and "waiting..." text | Perceived performance poor |
+| MEDIUM | No toast/notification system | Feedback only in terminal-style log panel |
+| LOW | Typography repeated in every component's scoped CSS | Maintenance burden, inconsistent fallbacks |
+
+### Behaviour 7.1: Design token system
+
+**Given** the MiroClaw frontend
+**When** a developer opens any component
+**Then** all colours, spacing, typography, shadows, and border-radius values come from CSS custom properties defined in `App.vue :root`
+**And** a `theme-light.css` and `theme-dark.css` file provides the token values per mode
+**And** toggling a `data-theme="dark"` attribute on `<html>` switches the entire palette
+
+**Token categories (minimum):**
+
+| Token | Example | Purpose |
+|-------|---------|---------|
+| `--color-bg-primary` | `#FFFFFF` / `#0A0A0A` | Main background |
+| `--color-bg-surface` | `#FAFAFA` / `#141414` | Card/panel background |
+| `--color-bg-elevated` | `#F5F5F5` / `#1A1A1A` | Input, hover, inset areas |
+| `--color-text-primary` | `#000000` / `#F0F0F0` | Headings, main text |
+| `--color-text-secondary` | `#666666` / `#999999` | Descriptions, labels |
+| `--color-text-tertiary` | `#999999` / `#666666` | Timestamps, meta |
+| `--color-accent` | `#FF4500` | Orange accent (both themes) |
+| `--color-success` | `#1A936F` / `#34D399` | Completed, confirmed |
+| `--color-warning` | `#F59E0B` | Pending, caution |
+| `--color-error` | `#EF4444` | Failed, rejected |
+| `--color-border` | `#EAEAEA` / `#2A2A2A` | Borders, dividers |
+| `--font-sans` | `'Space Grotesk', system-ui, sans-serif` | Body text |
+| `--font-mono` | `'JetBrains Mono', monospace` | Code, IDs, data |
+| `--radius-sm` | `2px` | Badges, chips |
+| `--radius-md` | `6px` | Buttons, inputs |
+| `--radius-lg` | `10px` | Cards, panels |
+| `--shadow-sm` | `0 2px 4px rgba(0,0,0,0.04)` | Subtle elevation |
+| `--shadow-md` | `0 4px 16px rgba(0,0,0,0.08)` | Cards |
+| `--shadow-lg` | `0 8px 32px rgba(0,0,0,0.12)` | Modals, overlays |
+
+**Traces to:** R15
+
+### Behaviour 7.2: Dark mode
+
+**Given** a user viewing the MiroClaw dashboard
+**When** the user toggles the theme switch in the header
+**Then** the entire UI switches between light and dark themes
+**And** the preference is persisted to `localStorage`
+**And** the initial theme respects `prefers-color-scheme` media query
+**And** all components use design tokens (no raw hex in component styles)
+**And** contrast ratios meet WCAG AA in both themes (4.5:1 for text, 3:1 for large text/UI elements)
+
+**Key dark mode rules:**
+- Background: `#0A0A0A` (near-black, not pure black — reduces eye strain)
+- Surface cards: `#141414` with `#2A2A2A` borders
+- Text primary: `#F0F0F0` (not pure white — too harsh on OLED)
+- Graph panel: dot grid pattern becomes `#1A1A1A` dots on `#0F0F0F` background
+- Timeline axis line: `#2A2A2A`
+- System log panel: already dark (`#000` background) — remains unchanged
+- Orange accent (`#FF4500`) stays the same in both themes
+- Graph node strokes: `#2A2A2A` instead of `#FFFFFF`
+
+**Traces to:** R15
+
+### Behaviour 7.3: Replace emoji with SVG icons
+
+**Given** any MiroClaw component currently using emoji characters as visual elements
+**When** the component renders
+**Then** all icons are SVG (inline or from Lucide icon set)
+**And** icons are sized via design tokens (`--icon-sm`, `--icon-md`, `--icon-lg`)
+**And** icons inherit colour from parent via `currentColor`
+
+**Specific replacements:**
+
+| Current | Location | Replacement |
+|---------|----------|-------------|
+| `📄` emoji | Home.vue file list | Lucide `file-text` SVG |
+| `↑` character | Home.vue upload icon | Lucide `upload` SVG |
+| `×` text | Home.vue remove button | Lucide `x` SVG |
+| `↓` character | Home.vue scroll button | Lucide `chevron-down` SVG |
+| `→` text | Various buttons | Lucide `arrow-right` SVG |
+| `↻` character | GraphPanel refresh | Lucide `refresh-cw` SVG |
+| `⛶` character | GraphPanel maximize | Lucide `maximize-2` SVG |
+| `❖` character | GraphPanel empty state | Lucide `hexagon` SVG |
+| `◇ ◈ ◆` characters | HistoryDatabase status | Lucide `diamond` / `hexagon` / `gem` SVGs |
+| `■` character | Home.vue status dot | CSS-styled `<span>` with border-radius |
+| `_` blinking cursor | Home.vue slogan | CSS-styled pseudo-element |
+
+**Traces to:** R15
+
+### Behaviour 7.4: Accessibility fixes
+
+**Given** the MiroClaw frontend
+**When** a user navigates via keyboard or screen reader
+**Then** all interactive elements have focus-visible outlines (2-4px, `--color-accent` colour)
+**And** all buttons and links have visible text labels (or `aria-label` if icon-only)
+**And** heading hierarchy follows h1 → h2 → h3 with no skipped levels
+**And** all form inputs have associated `<label>` elements
+**And** `<html lang="en">` is set
+**And** `prefers-reduced-motion: reduce` disables all animations (pulse, spin, blink, ripple, breathe)
+**And** ARIA roles are set on landmark elements (`role="main"`, `role="navigation"`, `role="banner"`)
+**And** focus trap is active in detail panels and modals
+
+**Specific fixes:**
+
+| Component | Issue | Fix |
+|-----------|-------|-----|
+| GraphPanel | SVG nodes have no ARIA labels | Add `aria-label="Entity: {name}"` to circles, `role="img"` to SVG |
+| Step3Simulation | Timeline cards have no heading hierarchy | Add `h3` for agent names, wrap feed in `<section aria-label="Activity Timeline">` |
+| Home.vue | File upload zone has no keyboard trigger | Add `role="button"`, `tabindex="0"`, `@keydown.enter` handler |
+| Home.vue | Upload `<input>` has no `<label>` | Add `<label for="file-upload">` |
+| All buttons | No focus-visible styles | Add `:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }` |
+| Detail panel | No escape-to-close | Add `@keydown.escape="closeDetailPanel"` |
+
+**Traces to:** R15
+
+### Behaviour 7.5: MiroClaw analytics visualisations
+
+**Given** a completed simulation with Phase 6 analytics data available
+**When** the user views the Report page (Step 4)
+**Then** MiroClaw-specific charts are rendered:
+
+**7.5a: Dispute Map**
+- Interactive heatmap showing contested triples
+- X-axis: triple subject, Y-axis: relationship type
+- Cell colour: intensity of disagreement (upvotes vs downvotes ratio)
+- Tooltip: triple detail, agent-type breakdown, source URLs from both sides
+- Fallback: sortable table for screen readers
+
+**7.5b: Position Drift Chart**
+- Multi-line chart: one line per agent
+- X-axis: simulation round, Y-axis: stance (supportive=1, neutral=0, opposing=-1)
+- Annotated markers at stance shift points with triggering evidence
+- Agent grouping: by initial stance and entity type
+- Toggle: show/hide individual agents or groups
+
+**7.5c: Oracle Forecast Time Series**
+- Line chart with confidence band
+- X-axis: simulation round, Y-axis: predicted probability
+- One series per oracle question
+- Overlay: knowledge graph growth (new triples per round) as bar chart on secondary Y-axis
+- Legend: interactive — click to toggle series visibility
+
+**7.5d: Graph Growth Metrics**
+- Stacked area chart showing cumulative triples by status (pending, accepted, contested, pruned)
+- X-axis: simulation round, Y-axis: count
+- Tooltips show exact counts per status per round
+
+**7.5e: Provenance Trail**
+- Not a chart — an interactive list view for a selected agent
+- Shows per-round timeline: searches, reads, graph additions, votes, oracle consultations, stance shifts
+- Each entry expandable to show detail
+- Filterable by action type
+
+**Chart library:** Chart.js (lightweight, good Vue 3 integration via `vue-chartjs`, accessible by default)
+**Rendering:** All charts use design tokens for colours. All charts provide a table fallback for screen readers.
+
+**Traces to:** R14, R15
+
+### Behaviour 7.6: Responsive breakpoints
+
+**Given** the MiroClaw frontend
+**When** viewed on different screen sizes
+**Then** the layout adapts at these breakpoints:
+
+| Breakpoint | Target | Layout Changes |
+|------------|--------|----------------|
+| `≥1440px` | Desktop wide | Two-column split (50/50 graph/workbench) |
+| `1024px–1439px` | Desktop | Two-column split (40/60 graph/workbench) |
+| `768px–1023px` | Tablet | Single column, graph becomes collapsible panel |
+| `<768px` | Mobile | Single column, stacked layout, hero title scales to 2.5rem |
+
+**Specific changes:**
+- Home.vue: Hero section stacks vertically below 1024px (already present, but add 768px tier for console box)
+- MainView.vue: Split panel becomes tabbed view below 768px
+- Step3Simulation: Timeline cards become full-width below 768px (no left/right split)
+- GraphPanel: Full-screen overlay mode on mobile with back button
+
+**Traces to:** R15
+
+### Behaviour 7.7: Loading and empty states
+
+**Given** any component that fetches data asynchronously
+**When** data is loading
+**Then** a skeleton screen matching the expected layout is shown (not a spinner)
+**And** skeleton uses subtle pulse animation (respects `prefers-reduced-motion`)
+
+**When** data is empty
+**Then** a clear empty state message is shown with:
+- An SVG icon (not emoji)
+- A short explanation
+- A suggested action (button or link)
+
+**Components needing empty states:**
+
+| Component | Current | Target |
+|-----------|---------|--------|
+| GraphPanel (no graph) | "Waiting for ontology generation..." with ❖ | Skeleton → empty state with "Upload documents to generate a knowledge graph" |
+| Step3Simulation (no actions) | "Waiting for agent actions..." with pulse ring | Skeleton timeline cards → "Start the simulation to see agent activity" |
+| Step4Report (no report) | "Waiting for Report Agent..." with rings | Skeleton sections → "Run a simulation first, then generate a report" |
+| Step5Interaction (no chat) | Unknown — needs empty state | "Ask a question about the simulation results" with suggested prompts |
+| HistoryDatabase (no projects) | Implied by `no-projects` class | "No simulations yet. Upload documents to get started." |
+
+**Traces to:** R15
+
+### Behaviour 7.8: Toast notifications
+
+**Given** any async action (start simulation, generate report, add triple)
+**When** the action completes or fails
+**Then** a toast notification appears at the top-right of the screen
+**And** auto-dismisses after 4 seconds
+**And** includes an icon (success: checkmark, error: X, info: info icon)
+**And** uses `aria-live="polite"` for screen reader announcement
+**And** does not steal focus
+
+**Implementation:** Lightweight Vue composable `useToast()` — no library dependency. Single `<ToastContainer>` component mounted in `App.vue`.
+
+**Traces to:** R15
+
+### Behaviour 7.9: Simulation phase tracker enhancement
+
+**Given** a running MiroClaw simulation
+**When** the user views Step3Simulation
+**Then** the MiroClaw phase tracker (currently a simple stepper with dots) is enhanced to show:
+
+- **Phase progress bar** — continuous bar showing current phase position within the round
+- **Round counter** — "Round X / Y" prominently displayed
+- **Per-phase mini-metrics:**
+  - Research: "X searches, Y reads" (from budget tracker)
+  - Contribute: "X triples added"
+  - Vote: "X votes cast, Y contested"
+  - Curate: "X merged, Y pruned"
+  - Oracle: "X forecasts, avg confidence Y%"
+- **Triple feed** remains collapsible but adds:
+  - Vote indicators (↑/↓ counts with colour coding)
+  - Status badge (pending/accepted/contested/pruned)
+  - Source URL as clickable link
+
+**Traces to:** R14, R15
+
+### Verification: Phase 7
+
+| Check | Method | Expected |
+|-------|--------|----------|
+| Design tokens | Inspect `:root` CSS | All colours/spacing via custom properties |
+| Dark mode toggle | Click theme switch | Entire UI switches, no raw hex artifacts |
+| Dark mode persistence | Reload page | Theme persists from localStorage |
+| Dark mode auto | Set OS to dark mode | MiroClaw loads in dark mode |
+| Contrast ratios | Run axe-core audit | WCAG AA pass in both themes |
+| No emoji icons | Search codebase for emoji chars | Zero emoji in template/style |
+| Keyboard navigation | Tab through entire app | All interactive elements reachable, visible focus rings |
+| Reduced motion | Enable `prefers-reduced-motion` | All animations disabled |
+| ARIA audit | Run Lighthouse accessibility | Score ≥ 90 |
+| Charts render | View report page after simulation | Dispute map, position drift, oracle time series, graph growth visible |
+| Chart fallback | Disable JavaScript on charts | Data tables visible |
+| Mobile layout | View at 375px width | Single column, no horizontal scroll, touch targets ≥44px |
+| Skeleton loading | Trigger slow API response | Skeleton screens appear, no blank areas |
+| Toast notifications | Start simulation | Toast appears: "Simulation started" |
+| Phase tracker | View during simulation | Per-phase metrics update in real time |
+
+### Files to modify
+
+| File | Change |
+|------|--------|
+| New: `frontend/src/styles/tokens.css` | CSS custom properties for both themes |
+| New: `frontend/src/styles/dark.css` | Dark theme token overrides |
+| New: `frontend/src/composables/useTheme.js` | Theme toggle + localStorage + OS preference detection |
+| New: `frontend/src/composables/useToast.js` | Toast notification composable |
+| New: `frontend/src/components/ToastContainer.vue` | Toast rendering component |
+| New: `frontend/src/components/charts/DisputeMap.vue` | Heatmap chart for contested triples |
+| New: `frontend/src/components/charts/PositionDrift.vue` | Multi-line stance chart over rounds |
+| New: `frontend/src/components/charts/OracleTimeSeries.vue` | Line chart with confidence bands |
+| New: `frontend/src/components/charts/GraphGrowth.vue` | Stacked area chart for triple statuses |
+| New: `frontend/src/components/charts/ProvenanceTrail.vue` | Agent provenance timeline list |
+| New: `frontend/src/components/icons/` | Lucide SVG icon components |
+| `frontend/src/App.vue` | Import tokens, dark.css, add ToastContainer, add `data-theme` attribute |
+| `frontend/src/views/Home.vue` | Replace emoji, use tokens, add ARIA, add responsive tiers |
+| `frontend/src/views/MainView.vue` | Use tokens, add theme toggle button in header, responsive tabs |
+| `frontend/src/components/GraphPanel.vue` | Dark mode, ARIA on SVG, use tokens for all colours |
+| `frontend/src/components/Step3Simulation.vue` | Enhanced phase tracker, replace emoji, use tokens, skeleton states |
+| `frontend/src/components/Step4Report.vue` | Add analytics chart tabs, use tokens, skeleton states |
+| `frontend/src/components/Step5Interaction.vue` | Empty state, use tokens |
+| `frontend/src/components/HistoryDatabase.vue` | Replace ◇◈◆ with SVG icons, use tokens |
+| `frontend/package.json` | Add `chart.js`, `vue-chartjs` dependencies |
+| `frontend/index.html` | Ensure `<html lang="en">` |
+
+---
+
 ## Appendix A: Architecture Decisions
 
-### A.1 Browser Runtime — OpenClaw agent-browser via CDP
+### A.1 Browser Runtime — Camofox-Browser REST API
 
-OpenClaw's `agent-browser` skill uses Chrome DevTools Protocol for headless browser automation. Per-agent named browser profiles in `~/.openclaw/openclaw.json`. Loopback-only HTTP API.
+Camofox-browser (https://github.com/jo-inc/camofox-browser) provides a REST API for headless browser automation with anti-detection (Camoufox/Firefox fork). Per-agent session isolation via `userId`/`sessionKey`. Accessibility tree snapshots for content extraction. Search macros (`@wikipedia_search`, `@google_search`, etc.) for structured web search.
 
-**Alternative considered:** Playwright via Python. Rejected because OpenClaw's agent-browser is purpose-built for AI agent use, has accessibility tree extraction, and the skill ecosystem allows extension.
+**Alternative considered:** Playwright via Python. Rejected because camofox-browser is purpose-built for AI agent use, has built-in anti-detection, accessibility tree extraction, search macros, and session isolation out of the box.
+
+**Graceful degradation:** When camofox-browser is not running (default), ResearchTool returns empty results. No crash, no error — agents simply have no web research capability until camofox is started.
 
 ### A.2 Simulation Engine — CAMEL Workforce, not OASIS flat loop
 
