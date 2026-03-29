@@ -15,7 +15,7 @@ Satisfies: R07 (Research budget)
 from dataclasses import dataclass
 from typing import Dict
 
-from ..utils.logger import get_logger
+from ...utils.logger import get_logger
 
 logger = get_logger('miroclaw.budget')
 

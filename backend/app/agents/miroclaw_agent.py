@@ -11,14 +11,29 @@ Satisfies: R01 (CAMEL-native agents), R12 (epistemic flexibility)
 import random
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from camel.agents import ChatAgent
 from camel.messages import BaseMessage
 from camel.models import ModelFactory
+from camel.toolkits import FunctionTool
 from camel.types import ModelPlatformType
 
 from ..utils.logger import get_logger
+from .tools.budget import RoundBudget, BudgetManager
+from .tools import (
+    create_research_tools,
+    create_contribute_tools,
+    create_vote_tools,
+    create_curate_tools,
+)
+
+if TYPE_CHECKING:
+    from .tools.graph_write import GraphWriteTool
+    from .tools.voting import VotingTool
+    from .tools.research import ResearchTool
+    from .tools.oracle import OracleConsultationTool
+    from .tools.oasis_platform import OasisPlatformPlugin
 
 logger = get_logger('miroclaw.agent')
 
@@ -65,70 +80,6 @@ class AgentIdentity:
         }
         self.changelog.append(entry)
         self.stance = new_stance
-
-
-@dataclass
-class BudgetTracker:
-    """Per-agent per-round budget tracking for research actions.
-
-    Hard limits:
-    - 3 web searches
-    - 3 page reads
-    - 1 graph addition
-    - 1 oracle consultation
-    """
-    searches_used: int = 0
-    reads_used: int = 0
-    graph_additions_used: int = 0
-    oracle_consultations_used: int = 0
-
-    MAX_SEARCHES = 3
-    MAX_READS = 3
-    MAX_GRAPH_ADDITIONS = 1
-    MAX_ORACLE_CONSULTATIONS = 1
-
-    def can_search(self) -> bool:
-        return self.searches_used < self.MAX_SEARCHES
-
-    def can_read(self) -> bool:
-        return self.reads_used < self.MAX_READS
-
-    def can_add_to_graph(self) -> bool:
-        return self.graph_additions_used < self.MAX_GRAPH_ADDITIONS
-
-    def can_consult_oracle(self) -> bool:
-        return self.oracle_consultations_used < self.MAX_ORACLE_CONSULTATIONS
-
-    def use_search(self) -> bool:
-        if not self.can_search():
-            return False
-        self.searches_used += 1
-        return True
-
-    def use_read(self) -> bool:
-        if not self.can_read():
-            return False
-        self.reads_used += 1
-        return True
-
-    def use_graph_addition(self) -> bool:
-        if not self.can_add_to_graph():
-            return False
-        self.graph_additions_used += 1
-        return True
-
-    def use_oracle_consultation(self) -> bool:
-        if not self.can_consult_oracle():
-            return False
-        self.oracle_consultations_used += 1
-        return True
-
-    def reset(self):
-        """Reset all budgets for a new round."""
-        self.searches_used = 0
-        self.reads_used = 0
-        self.graph_additions_used = 0
-        self.oracle_consultations_used = 0
 
 
 class MiroClawAgent(ChatAgent):
@@ -199,17 +150,29 @@ class MiroClawAgent(ChatAgent):
                 else self._default_flexibility()
             ),
         )
-        self.budget = BudgetTracker()
         self.current_phase: Optional[Phase] = None
+        self.current_round: int = 0
         self.is_curator = is_curator
         self.is_oracle = is_oracle
+
+        # Budget tracking (using shared RoundBudget from budget.py)
+        self._budget_manager = BudgetManager()
+        self.budget: Optional[RoundBudget] = None
+
+        # Tool instances (set during simulation setup via register_tools)
+        self._research_tool: Optional["ResearchTool"] = None
+        self._graph_write_tool: Optional["GraphWriteTool"] = None
+        self._voting_tool: Optional["VotingTool"] = None
+        self._oracle_tool: Optional["OracleConsultationTool"] = None
+        self._oasis_plugin: Optional["OasisPlatformPlugin"] = None
+        self._graph_service = None
 
         # OASIS platform reference (set during simulation setup)
         self._oasis_platform = None
         self._oasis_user_id: Optional[int] = None
 
-        # Track which tools are active for the current phase
-        self._phase_tools: Dict[Phase, List] = {
+        # Phase -> FunctionTool mapping (populated by register_tools)
+        self._phase_tools: Dict[Phase, List[FunctionTool]] = {
             Phase.RESEARCH: [],
             Phase.CONTRIBUTE: [],
             Phase.VOTE: [],
@@ -237,13 +200,114 @@ class MiroClawAgent(ChatAgent):
         else:
             return random.uniform(0.9, 1.0)
 
-    def set_phase(self, phase: Phase):
-        """Set the current phase and enable phase-appropriate tools."""
+    def set_phase(self, phase: Phase, round_num: int = 0):
+        """Set the current phase and swap active tools on the ChatAgent.
+
+        Removes all phase tools then adds only the tools for the current phase.
+        Also resets the per-round budget.
+        """
         self.current_phase = phase
-        self.budget.reset()
-        logger.debug(
-            f"Agent {self.agent_id} entering phase: {phase.value}"
+        if round_num > 0:
+            self.current_round = round_num
+
+        # Reset budget for new round
+        self.budget = self._budget_manager.create_budget(
+            self.agent_id, self.current_round
         )
+
+        # Swap tools: remove all phase tools, then add current phase's tools
+        self._swap_active_tools(phase)
+
+        logger.debug(
+            f"Agent {self.agent_id} entering phase: {phase.value} "
+            f"(round {self.current_round}, "
+            f"tools: {len(self._phase_tools.get(phase, []))})"
+        )
+
+    def register_tools(
+        self,
+        research_tool: Optional["ResearchTool"] = None,
+        graph_write_tool: Optional["GraphWriteTool"] = None,
+        voting_tool: Optional["VotingTool"] = None,
+        oracle_tool: Optional["OracleConsultationTool"] = None,
+        oasis_plugin: Optional["OasisPlatformPlugin"] = None,
+        graph_service: Optional[Any] = None,
+    ):
+        """Register tool instances and create phase-appropriate FunctionTools.
+
+        Call this during simulation setup after tool instances are created.
+        Populates self._phase_tools with FunctionTool lists per phase.
+        """
+        self._research_tool = research_tool
+        self._graph_write_tool = graph_write_tool
+        self._voting_tool = voting_tool
+        self._oracle_tool = oracle_tool
+        self._oasis_plugin = oasis_plugin
+        self._graph_service = graph_service
+
+        # Research phase: search, extract, get_graph_state, consult_oracle
+        if research_tool:
+            self._phase_tools[Phase.RESEARCH] = create_research_tools(
+                research_tool=research_tool,
+                agent_id=self.agent_id,
+                round_num=self.current_round,
+                oracle_tool=oracle_tool,
+                graph_service=graph_service,
+            )
+
+        # Contribute phase: add_triple, create_post
+        if graph_write_tool:
+            self._phase_tools[Phase.CONTRIBUTE] = create_contribute_tools(
+                graph_write_tool=graph_write_tool,
+                agent_id=self.agent_id,
+                round_num=self.current_round,
+                oasis_plugin=oasis_plugin,
+                oasis_agent_id=self._oasis_user_id or 0,
+            )
+
+        # Vote phase: upvote, downvote
+        if voting_tool:
+            self._phase_tools[Phase.VOTE] = create_vote_tools(
+                voting_tool=voting_tool,
+                agent_id=self.agent_id,
+                round_num=self.current_round,
+            )
+
+        # Curate phase: merge, prune, flag, ceiling (only for curator agents)
+        # Non-curator agents get empty curate tools — curator runs separately
+        if hasattr(self, '_is_curator') and self._is_curator:
+            self._phase_tools[Phase.CURATE] = create_curate_tools(
+                curator_agent=self,
+                round_num=self.current_round,
+            )
+
+        # Oracle phase: consult_oracle (reuse research oracle tool)
+        if oracle_tool and hasattr(self, '_is_oracle') and self._is_oracle:
+            self._phase_tools[Phase.ORACLE] = create_research_tools(
+                research_tool=research_tool,
+                agent_id=self.agent_id,
+                round_num=self.current_round,
+                oracle_tool=oracle_tool,
+                graph_service=graph_service,
+            )
+
+        logger.info(
+            f"Agent {self.agent_id} tools registered: "
+            f"research={len(self._phase_tools[Phase.RESEARCH])}, "
+            f"contribute={len(self._phase_tools[Phase.CONTRIBUTE])}, "
+            f"vote={len(self._phase_tools[Phase.VOTE])}, "
+            f"curate={len(self._phase_tools[Phase.CURATE])}, "
+            f"oracle={len(self._phase_tools[Phase.ORACLE])}"
+        )
+
+    def _swap_active_tools(self, phase: Phase):
+        """Replace the ChatAgent's tool list with the tools for the given phase.
+
+        CAMEL ChatAgent stores tools in self.tool_list. We rebuild the list
+        for the current phase only.
+        """
+        phase_tools = self._phase_tools.get(phase, [])
+        self.tool_list = list(phase_tools)
 
     def roll_epistemic_flexibility(
         self,

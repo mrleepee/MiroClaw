@@ -170,10 +170,10 @@ class RoundOrchestrator:
         self.current_phase = phase
         logger.debug(f"Round {round_num}: entering {phase.value} phase")
 
-        # Set phase on all relevant agents
+        # Set phase on all relevant agents (swaps FunctionTools)
         relevant_agents = self._get_agents_for_phase(phase)
         for agent in relevant_agents:
-            agent.set_phase(phase)
+            agent.set_phase(phase, round_num=round_num)
 
         # Execute phase-specific logic
         if phase == Phase.RESEARCH and self.config.on_research:

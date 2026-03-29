@@ -29,7 +29,7 @@ from camel.memories import (
     ScoreBasedContextCreator,
 )
 from camel.messages import BaseMessage
-from camel.types import OpenAIBationTokenCounter
+from camel.utils import OpenAITokenCounter
 
 from ..utils.logger import get_logger
 
@@ -173,7 +173,7 @@ class MiroClawAgentMemory:
         chat_history_window_size: int = 150,
     ):
         # CAMEL's ChatHistoryMemory with ScoreBasedContextCreator
-        token_counter = OpenAIBationTokenCounter(model_name or "gpt-4o-mini")
+        token_counter = OpenAITokenCounter(model_name or "gpt-4o-mini")
         context_creator = ScoreBasedContextCreator(
             token_counter=token_counter,
             token_limit=chat_history_token_limit,

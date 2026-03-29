@@ -16,7 +16,7 @@ import sqlite3
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from ..utils.logger import get_logger
+from ...utils.logger import get_logger
 
 logger = get_logger('miroclaw.oasis_platform')
 
