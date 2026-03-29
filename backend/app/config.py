@@ -80,6 +80,12 @@ class Config:
     ORACLE_MODEL_API_KEY = os.environ.get('ORACLE_MODEL_API_KEY', 'sk-placeholder')
     ORACLE_FORECAST_INTERVAL = int(os.environ.get('ORACLE_FORECAST_INTERVAL', '5'))
 
+    # Camofox browser integration (R10)
+    CAMOFOX_URL = os.environ.get('CAMOFOX_URL', 'http://localhost:9377')
+    CAMOFOX_ENABLED = os.environ.get('CAMOFOX_ENABLED', 'true').lower() == 'true'
+    CAMOFOX_REQUEST_TIMEOUT = int(os.environ.get('CAMOFOX_REQUEST_TIMEOUT', '30'))
+    CAMOFOX_SEARCH_ENGINE = os.environ.get('CAMOFOX_SEARCH_ENGINE', 'wikipedia')
+
     # MiroClaw research budget settings
     MIROCLAW_MAX_SEARCHES = int(os.environ.get('MIROCLAW_MAX_SEARCHES', '3'))
     MIROCLAW_MAX_READS = int(os.environ.get('MIROCLAW_MAX_READS', '3'))
