@@ -30,6 +30,7 @@
           <span class="dot"></span>
           {{ statusText }}
         </span>
+        <div class="step-divider"></div>
       </div>
     </header>
 
@@ -80,6 +81,7 @@ import { useRoute, useRouter } from 'vue-router'
 import GraphPanel from '../components/GraphPanel.vue'
 import Step1GraphBuild from '../components/Step1GraphBuild.vue'
 import Step2EnvSetup from '../components/Step2EnvSetup.vue'
+import MiroClawIcons from '../components/icons/MiroClawIcons.vue'
 import { generateOntology, getProject, buildGraph, getTaskStatus, getGraphData } from '../api/graph'
 import { getPendingUpload, clearPendingUpload } from '../store/pendingUpload'
 
@@ -409,20 +411,20 @@ onUnmounted(() => {
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: #FFF;
+  background: var(--color-bg-primary, #FFFFFF);
   overflow: hidden;
-  font-family: 'Space Grotesk', 'Noto Sans SC', system-ui, sans-serif;
+  font-family: var(--font-sans, 'Space Grotesk', system-ui, sans-serif);
 }
 
 /* Header */
 .app-header {
   height: 60px;
-  border-bottom: 1px solid #EAEAEA;
+  border-bottom: 1px solid var(--color-border, #EAEAEA);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 24px;
-  background: #FFF;
+  background: var(--color-bg-primary, #FFFFFF);
   z-index: 100;
   position: relative;
 }
@@ -434,18 +436,19 @@ onUnmounted(() => {
 }
 
 .brand {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
   font-weight: 800;
   font-size: 18px;
   letter-spacing: 1px;
   cursor: pointer;
+  color: var(--color-text-primary, #000000);
 }
 
 .view-switcher {
   display: flex;
-  background: #F5F5F5;
+  background: var(--color-bg-elevated, #F5F5F5);
   padding: 4px;
-  border-radius: 6px;
+  border-radius: var(--radius-md, 6px);
   gap: 4px;
 }
 
@@ -455,16 +458,16 @@ onUnmounted(() => {
   padding: 6px 16px;
   font-size: 12px;
   font-weight: 600;
-  color: #666;
+  color: var(--color-text-secondary, #666);
   border-radius: 4px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-fast, 150ms ease);
 }
 
 .switch-btn.active {
-  background: #FFF;
-  color: #000;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  background: var(--color-bg-primary, #FFFFFF);
+  color: var(--color-text-primary, #000000);
+  box-shadow: var(--shadow-sm, 0 2px 4px rgba(0,0,0,0.04));
 }
 
 .status-indicator {
@@ -472,7 +475,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: #666;
+  color: var(--color-text-secondary, #666);
   font-weight: 500;
 }
 
@@ -490,20 +493,20 @@ onUnmounted(() => {
 }
 
 .step-num {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
   font-weight: 700;
-  color: #999;
+  color: var(--color-text-tertiary, #999);
 }
 
 .step-name {
   font-weight: 700;
-  color: #000;
+  color: var(--color-text-primary, #000000);
 }
 
 .step-divider {
   width: 1px;
   height: 14px;
-  background-color: #E0E0E0;
+  background-color: var(--color-border, #E0E0E0);
 }
 
 .dot {
@@ -513,9 +516,9 @@ onUnmounted(() => {
   background: #CCC;
 }
 
-.status-indicator.processing .dot { background: #FF5722; animation: pulse 1s infinite; }
-.status-indicator.completed .dot { background: #4CAF50; }
-.status-indicator.error .dot { background: #F44336; }
+.status-indicator.processing .dot { background: var(--color-accent, #FF4500); animation: pulse 1s infinite; }
+.status-indicator.completed .dot { background: var(--color-success, #4CAF50); }
+.status-indicator.error .dot { background: var(--color-error, #F44336); }
 
 @keyframes pulse { 50% { opacity: 0.5; } }
 
@@ -535,6 +538,6 @@ onUnmounted(() => {
 }
 
 .panel-wrapper.left {
-  border-right: 1px solid #EAEAEA;
+  border-right: 1px solid var(--color-border, #EAEAEA);
 }
 </style>

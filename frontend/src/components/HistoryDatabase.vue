@@ -33,20 +33,20 @@
         <div class="card-header">
           <span class="card-id">{{ formatSimulationId(project.simulation_id) }}</span>
           <div class="card-status-icons">
-            <span 
-              class="status-icon" 
+            <span
+              class="status-icon"
               :class="{ available: project.project_id, unavailable: !project.project_id }"
               title="Graph Build"
-            >◇</span>
-            <span 
-              class="status-icon available" 
+            ><MiroClawIcons icon="diamond" :size="12" /></span>
+            <span
+              class="status-icon available"
               title="Environment Setup"
-            >◈</span>
-            <span 
-              class="status-icon" 
+            ><MiroClawIcons icon="gem" :size="12" /></span>
+            <span
+              class="status-icon"
               :class="{ available: project.report_id, unavailable: !project.report_id }"
               title="Analysis Report"
-            >◆</span>
+            ><MiroClawIcons icon="hexagon" :size="12" /></span>
           </div>
         </div>
 
@@ -72,7 +72,7 @@
           </div>
           <!-- Placeholder when no files -->
           <div class="files-empty" v-else>
-            <span class="empty-file-icon">◇</span>
+            <span class="empty-file-icon"><MiroClawIcons icon="diamond" :size="16" /></span>
             <span class="empty-file-text">No files</span>
           </div>
         </div>
@@ -119,7 +119,7 @@
                 </span>
                 <span class="modal-create-time">{{ formatDate(selectedProject.created_at) }} {{ formatTime(selectedProject.created_at) }}</span>
               </div>
-              <button class="modal-close" @click="closeModal">×</button>
+              <button class="modal-close" @click="closeModal" aria-label="Close modal"><MiroClawIcons icon="x" :size="18" /></button>
             </div>
 
             <!-- Modal Content -->
@@ -152,30 +152,30 @@
 
             <!-- Navigation Buttons -->
             <div class="modal-actions">
-              <button 
-                class="modal-btn btn-project" 
+              <button
+                class="modal-btn btn-project"
                 @click="goToProject"
                 :disabled="!selectedProject.project_id"
               >
                 <span class="btn-step">Step1</span>
-                <span class="btn-icon">◇</span>
+                <span class="btn-icon"><MiroClawIcons icon="diamond" :size="20" /></span>
                 <span class="btn-text">Graph Build</span>
               </button>
-              <button 
-                class="modal-btn btn-simulation" 
+              <button
+                class="modal-btn btn-simulation"
                 @click="goToSimulation"
               >
                 <span class="btn-step">Step2</span>
-                <span class="btn-icon">◈</span>
+                <span class="btn-icon"><MiroClawIcons icon="gem" :size="20" /></span>
                 <span class="btn-text">Environment Setup</span>
               </button>
-              <button 
-                class="modal-btn btn-report" 
+              <button
+                class="modal-btn btn-report"
                 @click="goToReport"
                 :disabled="!selectedProject.report_id"
               >
                 <span class="btn-step">Step4</span>
-                <span class="btn-icon">◆</span>
+                <span class="btn-icon"><MiroClawIcons icon="hexagon" :size="20" /></span>
                 <span class="btn-text">Analysis Report</span>
               </button>
             </div>
@@ -194,6 +194,7 @@
 import { ref, computed, onMounted, onUnmounted, onActivated, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { getSimulationHistory } from '../api/simulation'
+import MiroClawIcons from './icons/MiroClawIcons.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -603,11 +604,10 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background-image: 
+  background-image:
     linear-gradient(to right, rgba(0, 0, 0, 0.05) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(0, 0, 0, 0.05) 1px, transparent 1px);
   background-size: 50px 50px;
-  /* Position from top-left, expand at bottom when height changes, doesn't affect existing grid position */
   background-position: top left;
 }
 
@@ -617,9 +617,9 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: 
-    linear-gradient(to right, rgba(255, 255, 255, 0.9) 0%, transparent 15%, transparent 85%, rgba(255, 255, 255, 0.9) 100%),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.8) 0%, transparent 20%, transparent 80%, rgba(255, 255, 255, 0.8) 100%);
+  background:
+    linear-gradient(to right, var(--color-bg-primary, rgba(255,255,255,0.9)) 0%, transparent 15%, transparent 85%, var(--color-bg-primary, rgba(255,255,255,0.9)) 100%),
+    linear-gradient(to bottom, var(--color-bg-primary, rgba(255,255,255,0.8)) 0%, transparent 20%, transparent 80%, var(--color-bg-primary, rgba(255,255,255,0.8)) 100%);
   pointer-events: none;
 }
 
@@ -666,18 +666,18 @@ onUnmounted(() => {
 .project-card {
   position: absolute;
   width: 280px;
-  background: #FFFFFF;
-  border: 1px solid #E5E7EB;
+  background: var(--color-bg-primary, #FFFFFF);
+  border: 1px solid var(--color-border, #E5E7EB);
   border-radius: 0;
   padding: 14px;
   cursor: pointer;
-  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.05));
   transition: box-shadow 0.3s ease, border-color 0.3s ease, transform 700ms cubic-bezier(0.23, 1, 0.32, 1), opacity 700ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 .project-card:hover {
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-  border-color: rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-md, 0 10px 15px -3px rgba(0, 0, 0, 0.1));
+  border-color: var(--color-text-primary, rgba(0, 0, 0, 0.4));
   z-index: 1000 !important;
 }
 
@@ -1027,14 +1027,14 @@ onUnmounted(() => {
 }
 
 .modal-content {
-  background: #FFFFFF;
+  background: var(--color-bg-primary, #FFFFFF);
   width: 560px;
   max-width: 90vw;
   max-height: 85vh;
   overflow-y: auto;
-  border: 1px solid #E5E7EB;
-  border-radius: 8px;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--color-border, #E5E7EB);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: var(--shadow-lg, 0 20px 25px -5px rgba(0, 0, 0, 0.1));
 }
 
 /* Animation transitions */

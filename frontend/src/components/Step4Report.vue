@@ -371,6 +371,38 @@
             <span>Waiting for agent activity...</span>
           </div>
         </div>
+
+        <!-- Analytics Charts (shown after report completion) -->
+        <div v-if="isComplete" class="analytics-section">
+          <div class="analytics-header">
+            <h3 class="analytics-title">Simulation Analytics</h3>
+            <div class="analytics-tabs">
+              <button
+                v-for="tab in analyticsTabs"
+                :key="tab.key"
+                class="analytics-tab"
+                :class="{ active: activeAnalyticsTab === tab.key }"
+                @click="activeAnalyticsTab = tab.key"
+              >{{ tab.label }}</button>
+            </div>
+          </div>
+
+          <div class="analytics-chart-container">
+            <DisputeMapChart v-if="activeAnalyticsTab === 'disputes'" :disputes="analyticsData.disputes" />
+            <PositionDriftChart v-if="activeAnalyticsTab === 'drift'" :driftData="analyticsData.positionDrift" />
+            <OracleTimeSeriesChart v-if="activeAnalyticsTab === 'oracle'" :forecasts="analyticsData.oracleForecasts" />
+            <GraphGrowthChart v-if="activeAnalyticsTab === 'growth'" :growthData="analyticsData.graphGrowth" />
+            <ProvenanceTrail v-if="activeAnalyticsTab === 'provenance'" :entries="analyticsData.provenance" />
+
+            <div v-if="analyticsLoading" class="analytics-loading">
+              <div class="spinner-sm"></div>
+              <span>Loading analytics...</span>
+            </div>
+            <div v-if="!analyticsLoading && analyticsError" class="analytics-error">
+              {{ analyticsError }}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -393,6 +425,12 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick, h, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { getAgentLog, getConsoleLog } from '../api/report'
+import { getDisputeMap, getPositionDrift, getOracleTimeSeries, getGraphDiff, getProvenanceTrail } from '../api/miroclaw'
+import DisputeMapChart from './charts/DisputeMapChart.vue'
+import PositionDriftChart from './charts/PositionDriftChart.vue'
+import OracleTimeSeriesChart from './charts/OracleTimeSeriesChart.vue'
+import GraphGrowthChart from './charts/GraphGrowthChart.vue'
+import ProvenanceTrail from './charts/ProvenanceTrail.vue'
 
 const router = useRouter()
 
@@ -428,6 +466,64 @@ const leftPanel = ref(null)
 const rightPanel = ref(null)
 const logContent = ref(null)
 const showRawResult = reactive({})
+
+// Analytics state
+const activeAnalyticsTab = ref('disputes')
+const analyticsLoading = ref(false)
+const analyticsError = ref(null)
+const analyticsData = reactive({
+  disputes: [],
+  positionDrift: [],
+  oracleForecasts: [],
+  graphGrowth: [],
+  provenance: [],
+})
+
+const analyticsTabs = [
+  { key: 'disputes', label: 'Dispute Map' },
+  { key: 'drift', label: 'Position Drift' },
+  { key: 'oracle', label: 'Oracle Forecasts' },
+  { key: 'growth', label: 'Graph Growth' },
+  { key: 'provenance', label: 'Provenance' },
+]
+
+const fetchAnalytics = async () => {
+  if (!props.simulationId) return
+  analyticsLoading.value = true
+  analyticsError.value = null
+  try {
+    const [disputesRes, driftRes, oracleRes, growthRes] = await Promise.allSettled([
+      getDisputeMap(props.simulationId),
+      getPositionDrift(props.simulationId),
+      getOracleTimeSeries(props.simulationId),
+      getGraphDiff(props.simulationId),
+    ])
+    if (disputesRes.status === 'fulfilled' && disputesRes.value?.data?.disputes) {
+      analyticsData.disputes = disputesRes.value.data.disputes
+    }
+    if (driftRes.status === 'fulfilled' && driftRes.value?.data?.drift) {
+      analyticsData.positionDrift = driftRes.value.data.drift
+    }
+    if (oracleRes.status === 'fulfilled' && oracleRes.value?.data?.forecasts) {
+      analyticsData.oracleForecasts = oracleRes.value.data.forecasts
+    }
+    if (growthRes.status === 'fulfilled' && growthRes.value?.data?.diff) {
+      analyticsData.graphGrowth = growthRes.value.data.diff
+    }
+    // Fetch provenance for first agent if available
+    try {
+      const agentId = props.reportId || 'agent_0'
+      const provRes = await getProvenanceTrail(agentId, props.simulationId)
+      if (provRes?.data?.trail) {
+        analyticsData.provenance = provRes.data.trail
+      }
+    } catch { /* non-critical */ }
+  } catch (err) {
+    analyticsError.value = 'Failed to load analytics data'
+  } finally {
+    analyticsLoading.value = false
+  }
+}
 
 // Toggle functions
 const toggleRawResult = (timestamp, event) => {
@@ -2052,6 +2148,8 @@ const fetchAgentLog = async () => {
             currentSectionIndex.value = null  // Ensure loading state is cleared
             emit('update-status', 'completed')
             stopPolling()
+            // Fetch analytics data after report completes
+            fetchAnalytics()
             // Scroll logic handled uniformly in nextTick after loop ends
           }
           
@@ -2596,7 +2694,6 @@ watch(() => props.reportId, (newId) => {
   margin-top: 0;
 }
 
-
 /* Slide Content Transition */
 .slide-content-enter-active {
   transition: opacity 0.3s ease-out;
@@ -3106,7 +3203,6 @@ watch(() => props.reportId, (newId) => {
 .section-tag.content-ready svg {
   color: var(--wf-active-dot);
 }
-
 
 .section-tag.completed {
   background: #ECFDF5;
@@ -4323,7 +4419,6 @@ watch(() => props.reportId, (newId) => {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
-
 :deep(.insight-content) {
   padding: 12px;
   background: #FFFFFF;
@@ -4698,7 +4793,6 @@ watch(() => props.reportId, (newId) => {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
-
 :deep(.panorama-content) {
   padding: 12px;
   background: #FFFFFF;
@@ -4934,7 +5028,6 @@ watch(() => props.reportId, (newId) => {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
-
 :deep(.quicksearch-content) {
   padding: 12px;
   background: #FFFFFF;
@@ -5147,4 +5240,73 @@ watch(() => props.reportId, (newId) => {
 .log-msg.error { color: #EF5350; }
 .log-msg.warning { color: #FFA726; }
 .log-msg.success { color: #66BB6A; }
+
+/* Analytics Section */
+.analytics-section {
+  margin-top: 24px;
+  padding: 20px;
+  border-top: 1px solid var(--color-border, #EAEAEA);
+}
+
+.analytics-header {
+  margin-bottom: 16px;
+}
+
+.analytics-title {
+  font-family: var(--font-sans, 'Space Grotesk', sans-serif);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary, #000);
+  margin-bottom: 12px;
+}
+
+.analytics-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.analytics-tab {
+  padding: 6px 14px;
+  border: 1px solid var(--color-border, #EAEAEA);
+  background: transparent;
+  color: var(--color-text-secondary, #666);
+  font-family: var(--font-sans, 'Space Grotesk', sans-serif);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: var(--radius-sm, 2px);
+  transition: all 0.2s ease;
+}
+
+.analytics-tab:hover {
+  background: var(--color-bg-elevated, #F5F5F5);
+}
+
+.analytics-tab.active {
+  background: var(--color-text-primary, #000);
+  color: #FFF;
+  border-color: transparent;
+}
+
+.analytics-chart-container {
+  position: relative;
+  min-height: 300px;
+}
+
+.analytics-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 40px 0;
+  justify-content: center;
+  color: var(--color-text-tertiary, #999);
+  font-size: 13px;
+}
+
+.analytics-error {
+  padding: 16px;
+  text-align: center;
+  color: var(--color-error, #EF4444);
+  font-size: 13px;
+}
 </style>

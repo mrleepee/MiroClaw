@@ -44,3 +44,33 @@ export const voteTriple = (graphId, tripleUuid, data) => {
 export const getGraphStats = (graphId) => {
   return service.get(`/api/graph/${graphId}/stats`)
 }
+
+// ── Analytics (Phase 6) ──────────────────────────────────────────────
+
+export const getDisputeMap = (simulationId) => {
+  return service.get('/api/analytics/dispute-map', { params: { simulation_id: simulationId } })
+}
+
+export const getGraphDiff = (simulationId) => {
+  return service.get('/api/analytics/graph-diff', { params: { simulation_id: simulationId } })
+}
+
+export const getProvenanceTrail = (agentId, simulationId) => {
+  return service.get(`/api/analytics/provenance/${agentId}`, { params: { simulation_id: simulationId } })
+}
+
+export const getVoteAnalysis = (simulationId) => {
+  return service.get('/api/analytics/vote-analysis', { params: { simulation_id: simulationId } })
+}
+
+export const getPositionDrift = (simulationId) => {
+  return service.get('/api/analytics/position-drift', { params: { simulation_id: simulationId } })
+}
+
+export const getOracleTimeSeries = (simulationId) => {
+  return service.get('/api/analytics/oracle-time-series', { params: { simulation_id: simulationId } })
+}
+
+export const getFullAnalyticsReport = (simulationId) => {
+  return service.get('/api/analytics/full-report', { params: { simulation_id: simulationId } })
+}

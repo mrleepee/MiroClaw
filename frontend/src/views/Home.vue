@@ -1,11 +1,11 @@
 <template>
   <div class="home-container">
     <!-- Top Navigation -->
-    <nav class="navbar">
+    <nav class="navbar" role="navigation" aria-label="Main navigation">
       <div class="nav-brand">MIROCLAW</div>
       <div class="nav-links">
-        <a href="https://github.com/mrleepee/myMiroFish" target="_blank" class="github-link">
-          Visit our GitHub <span class="arrow">↗</span>
+        <a href="https://github.com/mrleepee/myMiroFish" target="_blank" rel="noopener noreferrer" class="github-link" aria-label="Visit our GitHub repository">
+          Visit our GitHub <MiroClawIcons icon="external-link" :size="14" />
         </a>
       </div>
     </nav>
@@ -29,7 +29,7 @@
               <span class="highlight-bold">MiroClaw</span> transforms documents into a living knowledge graph populated by AI agents that research the open web, contribute structured evidence, vote on each other's findings, and produce <span class="highlight-orange">calibrated forecasts</span>. The result is a collaboratively-researched, adversarially-tested knowledge base — not just social simulation.
             </p>
             <p class="slogan-text">
-              Frozen knowledge becomes living evidence. Agents argue from what they discover, not just what they were given<span class="blinking-cursor">_</span>
+              Frozen knowledge becomes living evidence. Agents argue from what they discover, not just what they were given<span class="blinking-cursor" aria-hidden="true">_</span>
             </p>
           </div>
 
@@ -42,8 +42,8 @@
             <img src="../assets/logo/MiroClaw.png" alt="MiroClaw Logo" class="hero-logo" />
           </div>
 
-          <button class="scroll-down-btn" @click="scrollToBottom">
-            ↓
+          <button class="scroll-down-btn" @click="scrollToBottom" aria-label="Scroll to bottom">
+            <MiroClawIcons icon="chevron-down" :size="18" />
           </button>
         </div>
       </section>
@@ -53,7 +53,7 @@
         <!-- Left Column: Status & Steps -->
         <div class="left-panel">
           <div class="panel-header">
-            <span class="status-dot">■</span> System Status
+            <span class="status-dot" aria-hidden="true"></span> System Status
           </div>
 
           <h2 class="section-title">Ready</h2>
@@ -131,12 +131,17 @@
               <div
                 class="upload-zone"
                 :class="{ 'drag-over': isDragOver, 'has-files': files.length > 0 }"
+                role="button"
+                tabindex="0"
+                aria-label="Upload files. Drag files here or press Enter to browse."
                 @dragover.prevent="handleDragOver"
                 @dragleave.prevent="handleDragLeave"
                 @drop.prevent="handleDrop"
                 @click="triggerFileInput"
+                @keydown.enter="triggerFileInput"
               >
                 <input
+                  id="file-upload"
                   ref="fileInput"
                   type="file"
                   multiple
@@ -144,19 +149,22 @@
                   @change="handleFileSelect"
                   style="display: none"
                   :disabled="loading"
+                  aria-label="Choose files to upload"
                 />
 
                 <div v-if="files.length === 0" class="upload-placeholder">
-                  <div class="upload-icon">↑</div>
+                  <div class="upload-icon"><MiroClawIcons icon="upload" :size="20" /></div>
                   <div class="upload-title">Drag files to upload</div>
                   <div class="upload-hint">or click to browse</div>
                 </div>
 
                 <div v-else class="file-list">
                   <div v-for="(file, index) in files" :key="index" class="file-item">
-                    <span class="file-icon">📄</span>
+                    <MiroClawIcons icon="file-text" :size="16" class="file-icon" aria-label="File" />
                     <span class="file-name">{{ file.name }}</span>
-                    <button @click.stop="removeFile(index)" class="remove-btn">×</button>
+                    <button @click.stop="removeFile(index)" class="remove-btn" :aria-label="'Remove ' + file.name">
+                      <MiroClawIcons icon="x" :size="14" />
+                    </button>
                   </div>
                 </div>
               </div>
@@ -193,7 +201,7 @@
               >
                 <span v-if="!loading">Start Engine</span>
                 <span v-else>Initializing...</span>
-                <span class="btn-arrow">→</span>
+                <span class="btn-arrow"><MiroClawIcons icon="arrow-right" :size="16" aria-hidden="true" /></span>
               </button>
             </div>
           </div>
@@ -210,6 +218,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import HistoryDatabase from '../components/HistoryDatabase.vue'
+import MiroClawIcons from '../components/icons/MiroClawIcons.vue'
 
 const router = useRouter()
 
@@ -306,20 +315,16 @@ const startSimulation = () => {
 </script>
 
 <style scoped>
-/* Global variables & reset */
+/* Global variables & reset — using design tokens */
 :root {
-  --black: #000000;
-  --white: #FFFFFF;
-  --orange: #FF4500;
-  --gray-light: #F5F5F5;
-  --gray-text: #666666;
-  --border: #E5E5E5;
-  /*
-    Using Space Grotesk as primary heading font, JetBrains Mono for code/labels
-    Ensure these Google Fonts are loaded in index.html
-  */
-  --font-mono: 'JetBrains Mono', monospace;
-  --font-sans: 'Space Grotesk', system-ui, sans-serif;
+  --black: var(--color-text-primary, #000000);
+  --white: var(--color-bg-primary, #FFFFFF);
+  --orange: var(--color-accent, #FF4500);
+  --gray-light: var(--color-bg-elevated, #F5F5F5);
+  --gray-text: var(--color-text-secondary, #666666);
+  --border: var(--color-border, #E5E5E5);
+  --font-mono: var(--font-mono-override, 'JetBrains Mono', monospace);
+  --font-sans: var(--font-sans-override, 'Space Grotesk', system-ui, sans-serif);
 }
 
 .home-container {
@@ -332,14 +337,15 @@ const startSimulation = () => {
 /* Top Navigation */
 .navbar {
   height: 60px;
-  background: var(--black);
-  color: var(--white);
+  background: var(--color-text-primary, #000000);
+  color: var(--color-bg-primary, #FFFFFF);
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 0 40px;
 }
 
+/* Theme toggle */
 .nav-brand {
   font-family: var(--font-mono);
   font-weight: 800;
