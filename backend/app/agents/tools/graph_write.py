@@ -159,8 +159,8 @@ class TripleValidator:
     def validate_source_url(self, triple: TripleSubmission) -> ValidationResult:
         """Check 4: Source URL must be reachable (if provided).
 
-        Note: Full LLM-based claim verification is deferred to a later
-        implementation phase. For now, we check URL reachability only.
+        Performs an HTTP HEAD request to verify the URL returns a 2xx or 3xx
+        response. Timeouts after 10 seconds. Local/internal URLs are skipped.
         """
         if not triple.source_url:
             # No source URL provided — allowed but flagged
@@ -176,6 +176,43 @@ class TripleValidator:
                 valid=False,
                 reason=f"Invalid URL format: {triple.source_url}",
             )
+
+        # Skip reachability check for localhost/internal URLs
+        if any(
+            triple.source_url.lower().startswith(prefix)
+            for prefix in ("http://localhost", "http://127.0.0.1", "http://0.0.0.0")
+        ):
+            return ValidationResult(valid=True)
+
+        # HTTP HEAD reachability check
+        try:
+            import requests
+            response = requests.head(
+                triple.source_url,
+                timeout=10,
+                allow_redirects=True,
+                headers={"User-Agent": "MiroClaw/1.0 (validation)"},
+            )
+            if response.status_code >= 400:
+                return ValidationResult(
+                    valid=False,
+                    reason=f"Source URL returned HTTP {response.status_code}: {triple.source_url}",
+                )
+        except requests.Timeout:
+            return ValidationResult(
+                valid=False,
+                reason=f"Source URL timed out (10s): {triple.source_url}",
+            )
+        except requests.ConnectionError:
+            return ValidationResult(
+                valid=False,
+                reason=f"Source URL unreachable: {triple.source_url}",
+            )
+        except ImportError:
+            # requests not available, skip reachability
+            logger.warning("requests library not available, skipping URL reachability check")
+        except Exception as e:
+            logger.warning(f"URL reachability check failed: {e}")
 
         return ValidationResult(valid=True)
 

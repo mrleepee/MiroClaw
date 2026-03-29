@@ -699,6 +699,41 @@ class MiroClawGraphWriteAPI:
         """
         self._gs._neo4j.run_query(query, params)
 
+    def get_recent_triples(
+        self,
+        limit: int = 20,
+        graph_id: str = None,
+    ) -> List[Dict[str, Any]]:
+        """Get the most recently added agent triples, ordered by timestamp descending.
+
+        Args:
+            limit: Maximum number of triples to return.
+            graph_id: Optional graph ID to filter by.
+        """
+        query = """
+        MATCH (s:Entity)-[r:RELATIONSHIP]->(o:Entity)
+        WHERE r.added_by_agent IS NOT NULL
+        """
+        if graph_id:
+            query += " AND s.graph_id = $graph_id"
+
+        query += """
+        RETURN s.name AS subject, type(r) AS relationship, o.name AS object,
+               r.uuid AS uuid, r.added_by_agent AS added_by_agent,
+               r.added_round AS added_round, r.added_timestamp AS added_timestamp,
+               r.source_url AS source_url, r.upvotes AS upvotes,
+               r.downvotes AS downvotes, r.status AS status
+        ORDER BY r.added_timestamp DESC
+        LIMIT $limit
+        """
+
+        params = {"limit": limit}
+        if graph_id:
+            params["graph_id"] = graph_id
+
+        results = self._gs._neo4j.run_query(query, params)
+        return [dict(r) for r in results]
+
     def find_similar_triples(
         self,
         embedding: List[float],
@@ -708,12 +743,62 @@ class MiroClawGraphWriteAPI:
         """Find triples similar to the given embedding.
 
         Uses cosine similarity via Neo4j vector index if available,
-        otherwise falls back to brute-force comparison.
+        otherwise falls back to brute-force comparison in Python.
         """
-        # For now, return empty — vector similarity search requires
-        # Neo4j vector index setup which is environment-dependent.
-        # The curator agent handles dedup via embedding_service directly.
-        return []
+        # Retrieve all agent triples with embeddings
+        query = """
+        MATCH (s:Entity)-[r:RELATIONSHIP]->(o:Entity)
+        WHERE r.added_by_agent IS NOT NULL AND r.embedding IS NOT NULL
+        """
+        if graph_id:
+            query += " AND s.graph_id = $graph_id"
+
+        query += """
+        RETURN s.name AS subject, type(r) AS relationship, o.name AS object,
+               r.uuid AS uuid, r.embedding AS embedding, r.status AS status
+        """
+
+        params = {}
+        if graph_id:
+            params["graph_id"] = graph_id
+
+        results = self._gs._neo4j.run_query(query, params)
+        if not results:
+            return []
+
+        # Brute-force cosine similarity comparison
+        import math
+        matches = []
+        for record in results:
+            stored_emb = record.get("embedding")
+            if not stored_emb or not embedding:
+                continue
+            # Handle both list and string representations
+            if isinstance(stored_emb, str):
+                try:
+                    import json
+                    stored_emb = json.loads(stored_emb)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+
+            dot = sum(a * b for a, b in zip(embedding, stored_emb))
+            norm_a = math.sqrt(sum(a * a for a in embedding))
+            norm_b = math.sqrt(sum(b * b for b in stored_emb))
+            if norm_a == 0 or norm_b == 0:
+                continue
+            similarity = dot / (norm_a * norm_b)
+
+            if similarity > threshold:
+                matches.append({
+                    "uuid": record["uuid"],
+                    "subject": record["subject"],
+                    "relationship": record["relationship"],
+                    "object": record["object"],
+                    "similarity": similarity,
+                    "status": record.get("status", "pending"),
+                })
+
+        return matches
 
     def get_stats(self, graph_id: str = None) -> Dict[str, Any]:
         """Get graph statistics."""

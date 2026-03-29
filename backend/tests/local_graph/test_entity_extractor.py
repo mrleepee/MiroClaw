@@ -101,8 +101,9 @@ class TestEntityExtractor:
         # Verify the prompt included existing names
         call_args = mock_llm.chat_json.call_args
         messages = call_args[1].get("messages") or call_args[0][0]
-        user_msg = messages[1]["content"]
-        assert "Alice Chen" in user_msg
+        # Implementation combines system + user into a single message
+        prompt_content = messages[0]["content"]
+        assert "Alice Chen" in prompt_content
 
     def test_extract_filters_entities_missing_name(self, mock_llm):
         mock_llm.chat_json.return_value = {

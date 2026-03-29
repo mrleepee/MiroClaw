@@ -30,7 +30,10 @@ class TestNeo4jClient:
         driver = client.driver
         assert driver is mock_driver
         mock_gdb.driver.assert_called_once_with(
-            "bolt://localhost:7687", auth=("neo4j", "password")
+            "bolt://localhost:7687",
+            auth=("neo4j", "password"),
+            connection_timeout=10,
+            max_transaction_retry_time=15,
         )
 
     @patch("app.services.local_graph.neo4j_client.GraphDatabase")
