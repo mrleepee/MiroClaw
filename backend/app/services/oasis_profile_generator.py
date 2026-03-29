@@ -22,7 +22,7 @@ from ..utils.logger import get_logger
 from .graph_entity_reader import EntityNode, GraphEntityReader
 from .graph_builder import get_graph_service
 
-logger = get_logger('mirofish.oasis_profile')
+logger = get_logger('miroclaw.oasis_profile')
 
 
 @dataclass
@@ -126,6 +126,41 @@ class OasisAgentProfile:
             "source_entity_uuid": self.source_entity_uuid,
             "source_entity_type": self.source_entity_type,
             "created_at": self.created_at,
+        }
+
+    def to_miroclaw_config(self) -> Dict[str, Any]:
+        """Convert to MiroClaw agent configuration.
+
+        Maps OASIS profile fields to MiroClawAgent constructor parameters.
+        Epistemic flexibility is assigned from the population distribution
+        (20% entrenched / 50% persuadable / 25% open / 5% hyper-flexible)
+        unless explicitly set.
+
+        Returns:
+            Dict with keys: agent_id, entity_name, entity_type, base_persona,
+            stance, epistemic_flexibility
+        """
+        import random as _rng
+
+        # Epistemic flexibility distribution (DECISIONS.md D4)
+        roll = _rng.random()
+        if roll < 0.20:
+            flexibility = _rng.uniform(0.0, 0.15)  # entrenched
+        elif roll < 0.70:
+            flexibility = _rng.uniform(0.15, 0.5)   # persuadable
+        elif roll < 0.95:
+            flexibility = _rng.uniform(0.5, 0.85)   # open
+        else:
+            flexibility = _rng.uniform(0.85, 1.0)   # hyper-flexible
+
+        return {
+            "agent_id": f"agent_{self.user_id}",
+            "entity_name": self.name,
+            "entity_type": self.source_entity_type or "Entity",
+            "base_persona": self.persona or self.bio,
+            "stance": "neutral",
+            "epistemic_flexibility": round(flexibility, 3),
+            "source_entity_uuid": self.source_entity_uuid,
         }
 
 
@@ -795,6 +830,43 @@ Important:
     def set_graph_id(self, graph_id: str):
         """Set the graph ID used for graph retrieval."""
         self.graph_id = graph_id
+
+    def generate_miroclaw_configs(
+        self,
+        entities: List[EntityNode],
+        use_llm: bool = True,
+        graph_id: Optional[str] = None,
+        progress_callback: Optional[callable] = None,
+    ) -> List[Dict[str, Any]]:
+        """Generate MiroClaw agent configurations from graph entities.
+
+        Wraps generate_profiles_from_entities and converts each profile
+        to MiroClaw config via to_miroclaw_config().
+
+        Args:
+            entities: List of graph entity nodes (actors only).
+            use_llm: Whether to use LLM for persona enrichment.
+            graph_id: Graph ID for context retrieval.
+            progress_callback: Optional progress callback.
+
+        Returns:
+            List of MiroClaw agent config dicts.
+        """
+        profiles = self.generate_profiles_from_entities(
+            entities=entities,
+            use_llm=use_llm,
+            graph_id=graph_id,
+            progress_callback=progress_callback,
+            output_platform="reddit",  # format doesn't matter; we use to_miroclaw_config()
+        )
+
+        configs = []
+        for profile in profiles:
+            if profile is not None:
+                configs.append(profile.to_miroclaw_config())
+
+        logger.info(f"Generated {len(configs)} MiroClaw agent configs from {len(entities)} entities")
+        return configs
     
     def generate_profiles_from_entities(
         self,

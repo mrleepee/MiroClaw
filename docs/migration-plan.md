@@ -1,8 +1,8 @@
-# MiroFish Fork: Migration Plan
+# MiroClaw: Migration Plan
 
 ## Context
 
-We are forking MiroFish to create an English-first version with two major infrastructure changes:
+We are forking MiroClaw to create an English-first version with two major infrastructure changes:
 
 1. **LLM Provider**: Switch from Alibaba Qwen to **Minimax 2.7**
 2. **Knowledge Graph**: Replace **Zep Cloud** (SaaS) with **Neo4j** (local) + **Qwen3-Embedding-4B** for embeddings + **Minimax 2.7 LLM** for entity extraction
@@ -94,7 +94,7 @@ CREATE VECTOR INDEX entity_embeddings FOR (e:Entity) ON (e.embedding)
 CREATE VECTOR INDEX edge_embeddings FOR ()-[r:RELATIONSHIP]-() ON (r.embedding)
 ```
 
-**Deployment:** Add `neo4j:5` Docker service to `docker-compose.yml` alongside MiroFish.
+**Deployment:** Add `neo4j:5` Docker service to `docker-compose.yml` alongside MiroClaw.
 
 ### Embedding Service: Qwen3-Embedding-4B
 

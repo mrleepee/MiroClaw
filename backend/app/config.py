@@ -7,7 +7,7 @@ import os
 from dotenv import load_dotenv
 
 # Load .env file from project root directory
-# Path: MiroFish/.env (relative to backend/app/config.py)
+# Path: MiroClaw/.env (relative to backend/app/config.py)
 project_root_env = os.path.join(os.path.dirname(__file__), '../../.env')
 
 if os.path.exists(project_root_env):
@@ -21,7 +21,7 @@ class Config:
     """Flask configuration class"""
 
     # Flask settings
-    SECRET_KEY = os.environ.get('SECRET_KEY', 'mirofish-secret-key')
+    SECRET_KEY = os.environ.get('SECRET_KEY', 'miroclaw-secret-key')
     DEBUG = os.environ.get('FLASK_DEBUG', 'True').lower() == 'true'
 
     # JSON settings - disable ASCII escaping for non-ASCII characters
@@ -35,7 +35,7 @@ class Config:
     # Neo4j configuration
     NEO4J_URI = os.environ.get('NEO4J_URI', 'bolt://localhost:7687')
     NEO4J_USER = os.environ.get('NEO4J_USER', 'neo4j')
-    NEO4J_PASSWORD = os.environ.get('NEO4J_PASSWORD', 'mirofish_password')
+    NEO4J_PASSWORD = os.environ.get('NEO4J_PASSWORD', 'miroclaw_password')
 
     # Embedding model configuration
     EMBEDDING_MODEL_NAME = os.environ.get('EMBEDDING_MODEL_NAME', 'Qwen/Qwen3-Embedding-4B')
@@ -73,6 +73,29 @@ class Config:
     REPORT_AGENT_MAX_TOOL_CALLS = int(os.environ.get('REPORT_AGENT_MAX_TOOL_CALLS', '5'))
     REPORT_AGENT_MAX_REFLECTION_ROUNDS = int(os.environ.get('REPORT_AGENT_MAX_REFLECTION_ROUNDS', '2'))
     REPORT_AGENT_TEMPERATURE = float(os.environ.get('REPORT_AGENT_TEMPERATURE', '0.5'))
+
+    # MiroClaw Oracle settings
+    ORACLE_MODEL_URL = os.environ.get('ORACLE_MODEL_URL', 'http://localhost:8080/v1')
+    ORACLE_MODEL_NAME = os.environ.get('ORACLE_MODEL_NAME', 'openforecaster-8b')
+    ORACLE_MODEL_API_KEY = os.environ.get('ORACLE_MODEL_API_KEY', 'sk-placeholder')
+    ORACLE_FORECAST_INTERVAL = int(os.environ.get('ORACLE_FORECAST_INTERVAL', '5'))
+
+    # MiroClaw research budget settings
+    MIROCLAW_MAX_SEARCHES = int(os.environ.get('MIROCLAW_MAX_SEARCHES', '3'))
+    MIROCLAW_MAX_READS = int(os.environ.get('MIROCLAW_MAX_READS', '3'))
+    MIROCLAW_MAX_GRAPH_ADDITIONS = int(os.environ.get('MIROCLAW_MAX_GRAPH_ADDITIONS', '1'))
+    MIROCLAW_MAX_ORACLE_CONSULTATIONS = int(os.environ.get('MIROCLAW_MAX_ORACLE_CONSULTATIONS', '1'))
+
+    # MiroClaw curator settings
+    MIROCLAW_GRAPH_SIZE_CEILING = int(os.environ.get('MIROCLAW_GRAPH_SIZE_CEILING', '5000'))
+    MIROCLAW_CONTESTED_UPVOTE_THRESHOLD = int(os.environ.get('MIROCLAW_CONTESTED_UPVOTE_THRESHOLD', '3'))
+    MIROCLAW_CONTESTED_DOWNVOTE_THRESHOLD = int(os.environ.get('MIROCLAW_CONTESTED_DOWNVOTE_THRESHOLD', '3'))
+
+    # MiroClaw cross-session evolution
+    MIROCLAW_MEMORY_DIR = os.environ.get(
+        'MIROCLAW_MEMORY_DIR',
+        os.path.join(os.path.dirname(__file__), '../uploads/miroclaw_memory')
+    )
 
     @classmethod
     def validate(cls):

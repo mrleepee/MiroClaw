@@ -11,7 +11,7 @@ from ..config import Config
 from ..utils.logger import get_logger
 from .graph_builder import get_graph_service
 
-logger = get_logger('mirofish.entity_reader')
+logger = get_logger('miroclaw.entity_reader')
 
 # Used for generic return types
 T = TypeVar('T')

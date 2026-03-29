@@ -23,7 +23,7 @@ from ..utils.logger import get_logger
 from .simulation_graph_updater import SimulationGraphManager
 from .simulation_ipc import SimulationIPCClient, CommandType, IPCResponse
 
-logger = get_logger('mirofish.simulation_runner')
+logger = get_logger('miroclaw.simulation_runner')
 
 # Flag indicating whether the cleanup handler has been registered
 _cleanup_registered = False
@@ -1364,7 +1364,122 @@ class SimulationRunner:
         return running
     
     # ============== Interview features ==============
-    
+
+    @classmethod
+    def start_miroclaw_simulation(
+        cls,
+        simulation_id: str,
+        graph_id: str,
+        agent_configs: List[Dict[str, Any]],
+        total_rounds: int = 10,
+        oracle_forecast_interval: int = 5,
+    ) -> SimulationRunState:
+        """Start a MiroClaw phased simulation using RoundOrchestrator.
+
+        Unlike start_simulation() which spawns an OASIS subprocess, this runs
+        the CAMEL-native phased round loop in-process via a background thread.
+
+        Args:
+            simulation_id: Simulation ID (from SimulationManager).
+            graph_id: Neo4j graph ID for triple operations.
+            agent_configs: List of MiroClaw agent config dicts (from
+                OasisProfileGenerator.generate_miroclaw_configs()).
+            total_rounds: Number of simulation rounds.
+            oracle_forecast_interval: Oracle phase fires every N rounds.
+
+        Returns:
+            SimulationRunState with runner_status=RUNNING.
+        """
+        from ..agents.miroclaw_agent import MiroClawAgent
+        from ..agents.round_orchestrator import RoundOrchestrator, SimulationConfig
+
+        # Check whether already running
+        existing = cls.get_run_state(simulation_id)
+        if existing and existing.runner_status in [RunnerStatus.RUNNING, RunnerStatus.STARTING]:
+            raise ValueError(f"Simulation is already running: {simulation_id}")
+
+        # Initialise run state
+        state = SimulationRunState(
+            simulation_id=simulation_id,
+            runner_status=RunnerStatus.STARTING,
+            total_rounds=total_rounds,
+            total_simulation_hours=total_rounds,  # 1 round ≈ 1 hour proxy
+            started_at=datetime.now().isoformat(),
+        )
+        cls._save_run_state(state)
+
+        # Build agents from configs
+        agents: List[MiroClawAgent] = []
+        for cfg in agent_configs:
+            agent = MiroClawAgent(
+                agent_id=cfg["agent_id"],
+                entity_name=cfg["entity_name"],
+                entity_type=cfg["entity_type"],
+                persona=cfg["base_persona"],
+                epistemic_flexibility=cfg.get("epistemic_flexibility", 0.3),
+                stance=cfg.get("stance", "neutral"),
+            )
+            agents.append(agent)
+
+        config = SimulationConfig(
+            total_rounds=total_rounds,
+            oracle_forecast_interval=oracle_forecast_interval,
+        )
+
+        orchestrator = RoundOrchestrator(agents=agents, config=config)
+
+        # Background thread for the async simulation loop
+        def run_miroclaw():
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                state.runner_status = RunnerStatus.RUNNING
+                state.twitter_running = True  # reuse field for UI compat
+                cls._save_run_state(state)
+
+                results = loop.run_until_complete(orchestrator.run())
+
+                total_triples = sum(r.triples_added for r in results)
+                total_votes = sum(r.votes_cast for r in results)
+
+                state.runner_status = RunnerStatus.COMPLETED
+                state.completed_at = datetime.now().isoformat()
+                state.current_round = total_rounds
+                state.twitter_running = False
+                cls._save_run_state(state)
+
+                logger.info(
+                    f"MiroClaw simulation completed: {simulation_id}, "
+                    f"{total_triples} triples, {total_votes} votes"
+                )
+
+                # Persist results alongside the simulation
+                sim_dir = os.path.join(cls.RUN_STATE_DIR, simulation_id)
+                os.makedirs(sim_dir, exist_ok=True)
+                results_path = os.path.join(sim_dir, "miroclaw_results.json")
+                with open(results_path, "w", encoding="utf-8") as f:
+                    json.dump(
+                        [r.to_dict() for r in results],
+                        f, ensure_ascii=False, indent=2,
+                    )
+
+            except Exception as e:
+                logger.error(f"MiroClaw simulation failed: {simulation_id}, {e}")
+                state.runner_status = RunnerStatus.FAILED
+                state.error = str(e)
+                state.twitter_running = False
+                cls._save_run_state(state)
+            finally:
+                loop.close()
+
+        thread = threading.Thread(target=run_miroclaw, daemon=True)
+        thread.start()
+        cls._monitor_threads[simulation_id] = thread
+
+        logger.info(f"MiroClaw simulation started: {simulation_id}, {len(agents)} agents, {total_rounds} rounds")
+        return state
+
     @classmethod
     def check_env_alive(cls, simulation_id: str) -> bool:
         """

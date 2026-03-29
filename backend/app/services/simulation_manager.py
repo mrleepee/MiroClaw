@@ -18,7 +18,7 @@ from .graph_entity_reader import GraphEntityReader, FilteredEntities
 from .oasis_profile_generator import OasisProfileGenerator, OasisAgentProfile
 from .simulation_config_generator import SimulationConfigGenerator, SimulationParameters
 
-logger = get_logger('mirofish.simulation')
+logger = get_logger('miroclaw.simulation')
 
 
 class SimulationStatus(str, Enum):
@@ -520,7 +520,7 @@ class SimulationManager:
                 "parallel": f"python {scripts_dir}/run_parallel_simulation.py --config {config_path}",
             },
             "instructions": (
-                f"1. Activate the conda environment: conda activate MiroFish\n"
+                f"1. Activate the conda environment: conda activate MiroClaw\n"
                 f"2. Run the simulation (scripts are located in {scripts_dir}):\n"
                 f"   - Run Twitter only: python {scripts_dir}/run_twitter_simulation.py --config {config_path}\n"
                 f"   - Run Reddit only: python {scripts_dir}/run_reddit_simulation.py --config {config_path}\n"

@@ -19,7 +19,7 @@ from ..models.task import TaskManager, TaskStatus
 from ..models.project import ProjectManager, ProjectStatus
 
 # 获取日志器
-logger = get_logger('mirofish.api')
+logger = get_logger('miroclaw.api')
 
 
 def allowed_file(filename: str) -> bool:
@@ -334,7 +334,7 @@ def build_graph():
             project.error = None
         
         # 获取配置
-        graph_name = data.get('graph_name', project.name or 'MiroFish Graph')
+        graph_name = data.get('graph_name', project.name or 'MiroClaw Graph')
         chunk_size = data.get('chunk_size', project.chunk_size or Config.DEFAULT_CHUNK_SIZE)
         chunk_overlap = data.get('chunk_overlap', project.chunk_overlap or Config.DEFAULT_CHUNK_OVERLAP)
         
@@ -370,7 +370,7 @@ def build_graph():
         
         # 启动后台任务
         def build_task():
-            build_logger = get_logger('mirofish.build')
+            build_logger = get_logger('miroclaw.build')
             try:
                 build_logger.info(f"[{task_id}] 开始构建图谱...")
                 task_manager.update_task(
@@ -573,15 +573,201 @@ def delete_graph(graph_id: str):
     try:
         builder = GraphBuilderService()
         builder.delete_graph(graph_id)
-        
+
         return jsonify({
             "success": True,
             "message": f"图谱已删除: {graph_id}"
         })
-        
+
     except Exception as e:
         return jsonify({
             "success": False,
             "error": str(e),
             "traceback": traceback.format_exc()
         }), 500
+
+
+# ============== MiroClaw Triple API ==============
+
+@graph_bp.route('/<graph_id>/triple', methods=['POST'])
+def add_triple(graph_id: str):
+    """Submit a structured triple to the knowledge graph.
+
+    MiroClaw agents use this endpoint during the Contribute phase.
+
+    Request body:
+        subject: str — Subject entity name
+        subject_type: str — Subject entity type
+        relationship: str — Relationship type
+        object: str — Object entity name
+        object_type: str — Object entity type
+        source_url: str — URL where evidence was found
+        added_by_agent: str — Agent identifier
+        added_round: int — Current round number
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "error": "No JSON body provided"}), 400
+
+        required_fields = ["subject", "relationship", "object", "added_by_agent", "added_round"]
+        for field_name in required_fields:
+            if field_name not in data:
+                return jsonify({
+                    "success": False,
+                    "error": f"Missing required field: {field_name}",
+                }), 400
+
+        from ..services.local_graph.graph_service import MiroClawGraphWriteAPI
+        from ..services.graph_builder import get_graph_service
+        graph_service = get_graph_service()
+        write_api = MiroClawGraphWriteAPI(graph_service)
+
+        triple_uuid = write_api.write_triple(
+            subject=data["subject"],
+            subject_type=data.get("subject_type", "Entity"),
+            relationship=data["relationship"],
+            object=data["object"],
+            object_type=data.get("object_type", "Entity"),
+            properties={
+                "source_url": data.get("source_url", ""),
+                "added_by_agent": data["added_by_agent"],
+                "added_round": data["added_round"],
+                "added_timestamp": data.get("added_timestamp", ""),
+                "upvotes": 0,
+                "downvotes": 0,
+                "status": "pending",
+            },
+            graph_id=graph_id,
+        )
+
+        return jsonify({
+            "success": True,
+            "triple_uuid": triple_uuid,
+        })
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+        }), 500
+
+
+@graph_bp.route('/<graph_id>/triples', methods=['GET'])
+def get_triples(graph_id: str):
+    """Get triples from the knowledge graph.
+
+    Query params:
+        filter_agent: str — Filter by agent identifier
+        status: str — Filter by status (pending, contested, pruned, merged)
+    """
+    try:
+        from ..services.local_graph.graph_service import MiroClawGraphWriteAPI
+        from ..services.graph_builder import get_graph_service
+        graph_service = get_graph_service()
+        write_api = MiroClawGraphWriteAPI(graph_service)
+
+        filter_agent = request.args.get("filter_agent")
+        status = request.args.get("status")
+
+        if status:
+            triples = write_api.get_triples_by_status(status, graph_id=graph_id)
+        else:
+            triples = write_api.get_agent_triples(
+                graph_id=graph_id,
+                filter_agent=filter_agent,
+            )
+
+        seed_triples = write_api.get_seed_triples(graph_id=graph_id)
+
+        return jsonify({
+            "success": True,
+            "agent_triples": triples,
+            "seed_triples": seed_triples,
+            "total_agent_triples": len(triples),
+            "total_seed_triples": len(seed_triples),
+        })
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e),
+        }), 500
+
+
+@graph_bp.route('/<graph_id>/triple/<triple_uuid>', methods=['GET'])
+def get_triple(graph_id: str, triple_uuid: str):
+    """Get a single triple by UUID."""
+    try:
+        from ..services.local_graph.graph_service import MiroClawGraphWriteAPI
+        from ..services.graph_builder import get_graph_service
+        graph_service = get_graph_service()
+        write_api = MiroClawGraphWriteAPI(graph_service)
+
+        triple = write_api.get_triple(triple_uuid)
+        if not triple:
+            return jsonify({"success": False, "error": "Triple not found"}), 404
+
+        return jsonify({"success": True, "triple": triple})
+
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@graph_bp.route('/<graph_id>/triple/<triple_uuid>/vote', methods=['POST'])
+def vote_triple(graph_id: str, triple_uuid: str):
+    """Vote on a triple (upvote or downvote).
+
+    Request body:
+        agent_id: str — Voting agent identifier
+        direction: str — "upvote" or "downvote"
+        round_num: int — Current round number
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "error": "No JSON body provided"}), 400
+
+        direction = data.get("direction", "")
+        if direction not in ("upvote", "downvote"):
+            return jsonify({
+                "success": False,
+                "error": "direction must be 'upvote' or 'downvote'",
+            }), 400
+
+        from ..services.local_graph.graph_service import MiroClawGraphWriteAPI
+        from ..services.graph_builder import get_graph_service
+        graph_service = get_graph_service()
+        write_api = MiroClawGraphWriteAPI(graph_service)
+
+        write_api.increment_triple_votes(
+            triple_uuid,
+            "upvotes" if direction == "upvote" else "downvotes",
+            data.get("influence_weight", 1.0),
+        )
+
+        return jsonify({
+            "success": True,
+            "triple_uuid": triple_uuid,
+            "direction": direction,
+        })
+
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@graph_bp.route('/<graph_id>/stats', methods=['GET'])
+def get_graph_stats(graph_id: str):
+    """Get graph statistics (agent triples counts by status)."""
+    try:
+        from ..services.local_graph.graph_service import MiroClawGraphWriteAPI
+        from ..services.graph_builder import get_graph_service
+        graph_service = get_graph_service()
+        write_api = MiroClawGraphWriteAPI(graph_service)
+
+        stats = write_api.get_stats(graph_id=graph_id)
+        return jsonify({"success": True, "stats": stats})
+
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500

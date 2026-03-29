@@ -30,7 +30,7 @@ from .graph_search_tools import (
 )
 from .simulation_query_tools import SimulationDBTools
 
-logger = get_logger('mirofish.report_agent')
+logger = get_logger('miroclaw.report_agent')
 
 
 class ReportLogger:
@@ -353,8 +353,8 @@ class ReportConsoleLogger:
         
         # Attach to the report_agent-related loggers
         loggers_to_attach = [
-            'mirofish.report_agent',
-            'mirofish.zep_tools',
+            'miroclaw.report_agent',
+            'miroclaw.zep_tools',
         ]
         
         for logger_name in loggers_to_attach:
@@ -369,8 +369,8 @@ class ReportConsoleLogger:
         
         if self._file_handler:
             loggers_to_detach = [
-                'mirofish.report_agent',
-                'mirofish.zep_tools',
+                'miroclaw.report_agent',
+                'miroclaw.zep_tools',
             ]
             
             for logger_name in loggers_to_detach:

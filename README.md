@@ -8,7 +8,7 @@ MiroClaw extends [MiroFish](https://github.com/666ghj/MiroFish) to give AI agent
 
 ## What MiroClaw Changes
 
-| MiroFish | MiroClaw |
+| MiroClaw (before) | MiroClaw (after) |
 |----------|----------|
 | Frozen knowledge graph | Living graph that grows during simulation |
 | Agents argue from seed documents only | Agents research the open web each round |

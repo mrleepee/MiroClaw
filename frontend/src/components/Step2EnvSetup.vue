@@ -440,7 +440,7 @@
             <div class="rounds-header">
               <div class="header-left">
                 <span class="section-title">Simulation Rounds Configuration</span>
-                <span class="section-desc">MiroFish automatically plans simulation for <span class="desc-highlight">{{ simulationConfig?.time_config?.total_simulation_hours || '-' }}</span> hours of reality, each round represents <span class="desc-highlight">{{ simulationConfig?.time_config?.minutes_per_round || '-' }}</span> minutes of actual time</span>
+                <span class="section-desc">MiroClaw automatically plans simulation for <span class="desc-highlight">{{ simulationConfig?.time_config?.total_simulation_hours || '-' }}</span> hours of reality, each round represents <span class="desc-highlight">{{ simulationConfig?.time_config?.minutes_per_round || '-' }}</span> minutes of actual time</span>
               </div>
               <label class="switch-control">
                 <input type="checkbox" v-model="useCustomRounds">

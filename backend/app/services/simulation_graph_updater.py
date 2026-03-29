@@ -16,7 +16,7 @@ from ..config import Config
 from ..utils.logger import get_logger
 from .graph_builder import get_graph_service
 
-logger = get_logger('mirofish.graph_memory_updater')
+logger = get_logger('miroclaw.graph_memory_updater')
 
 
 @dataclass

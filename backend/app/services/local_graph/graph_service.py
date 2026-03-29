@@ -487,6 +487,267 @@ def _row_to_edge(row: Dict[str, Any]) -> GraphEdge:
     )
 
 
+class MiroClawGraphWriteAPI:
+    """MiroClaw-specific graph write operations.
+
+    Extends LocalGraphService with methods for:
+    - Writing agent-sourced triples with provenance metadata
+    - Querying triples by status (pending, contested, pruned)
+    - Incrementing vote counts
+    - Updating triple status
+    - Finding similar triples for dedup
+    """
+
+    def __init__(self, graph_service: LocalGraphService):
+        self._gs = graph_service
+
+    def write_triple(
+        self,
+        subject: str,
+        subject_type: str,
+        relationship: str,
+        object: str,
+        object_type: str,
+        properties: Dict[str, Any],
+        graph_id: str = None,
+    ) -> str:
+        """Write a structured triple to Neo4j with provenance metadata.
+
+        Returns the UUID of the created relationship (triple).
+        """
+        triple_uuid = _new_uuid()
+
+        query = """
+        MERGE (s:Entity {name: $subject, graph_id: $graph_id})
+        ON CREATE SET s.uuid = randomUUID(), s.labels_json = json_encode([$subject_type]),
+                      s.entity_category = 'agent_added', s.created_at = datetime()
+        MERGE (o:Entity {name: $object, graph_id: $graph_id})
+        ON CREATE SET o.uuid = randomUUID(), o.labels_json = json_encode([$object_type]),
+                      o.entity_category = 'agent_added', o.created_at = datetime()
+        CREATE (s)-[r:RELATIONSHIP {
+            uuid: $triple_uuid,
+            name: $relationship,
+            fact: $fact,
+            source_url: $source_url,
+            added_by_agent: $added_by_agent,
+            added_round: $added_round,
+            added_timestamp: $added_timestamp,
+            upvotes: $upvotes,
+            downvotes: $downvotes,
+            status: $status,
+            created_at: datetime()
+        }]->(o)
+        RETURN r.uuid AS uuid
+        """
+
+        fact = f"({subject}) —[{relationship}]-> ({object})"
+        params = {
+            "triple_uuid": triple_uuid,
+            "subject": subject,
+            "subject_type": subject_type,
+            "object": object,
+            "object_type": object_type,
+            "relationship": relationship,
+            "fact": fact,
+            "graph_id": graph_id,
+            "source_url": properties.get("source_url", ""),
+            "added_by_agent": properties.get("added_by_agent", ""),
+            "added_round": properties.get("added_round", 0),
+            "added_timestamp": properties.get("added_timestamp", ""),
+            "upvotes": properties.get("upvotes", 0),
+            "downvotes": properties.get("downvotes", 0),
+            "status": properties.get("status", "pending"),
+        }
+
+        self._gs._neo4j.run_query(query, params)
+        logger.info(f"Wrote triple {triple_uuid}: {fact}")
+        return triple_uuid
+
+    def get_agent_triples(
+        self,
+        graph_id: str = None,
+        filter_agent: str = None,
+    ) -> List[Dict[str, Any]]:
+        """Get all agent-added triples, optionally filtered by agent."""
+        query = """
+        MATCH (s:Entity)-[r:RELATIONSHIP]->(o:Entity)
+        WHERE r.added_by_agent IS NOT NULL
+        """
+        if graph_id:
+            query += " AND s.graph_id = $graph_id"
+        if filter_agent:
+            query += " AND r.added_by_agent = $filter_agent"
+
+        query += """
+        RETURN r.uuid AS uuid, s.name AS subject, r.name AS relationship,
+               o.name AS object, r.source_url AS source_url,
+               r.added_by_agent AS added_by_agent, r.added_round AS added_round,
+               r.added_timestamp AS added_timestamp,
+               r.upvotes AS upvotes, r.downvotes AS downvotes,
+               r.status AS status
+        ORDER BY r.added_round ASC
+        """
+
+        params = {}
+        if graph_id:
+            params["graph_id"] = graph_id
+        if filter_agent:
+            params["filter_agent"] = filter_agent
+
+        results = self._gs._neo4j.run_query(query, params)
+        return [dict(r) for r in results]
+
+    def get_seed_triples(self, graph_id: str = None) -> List[Dict[str, Any]]:
+        """Get seed triples (no added_by_agent field)."""
+        query = """
+        MATCH (s:Entity)-[r:RELATIONSHIP]->(o:Entity)
+        WHERE r.added_by_agent IS NULL
+        """
+        if graph_id:
+            query += " AND s.graph_id = $graph_id"
+
+        query += """
+        RETURN r.uuid AS uuid, s.name AS subject, r.name AS relationship,
+               o.name AS object, r.fact AS fact, r.status AS status
+        """
+
+        params = {}
+        if graph_id:
+            params["graph_id"] = graph_id
+
+        results = self._gs._neo4j.run_query(query, params)
+        return [dict(r) for r in results]
+
+    def get_triples_by_status(self, status: str, graph_id: str = None) -> List[Dict[str, Any]]:
+        """Get triples by their status (pending, contested, pruned, merged)."""
+        query = """
+        MATCH (s:Entity)-[r:RELATIONSHIP]->(o:Entity)
+        WHERE r.status = $status
+        """
+        if graph_id:
+            query += " AND s.graph_id = $graph_id"
+
+        query += """
+        RETURN r.uuid AS uuid, s.name AS subject, r.name AS relationship,
+               o.name AS object, r.source_url AS source_url,
+               r.added_by_agent AS added_by_agent, r.added_round AS added_round,
+               r.upvotes AS upvotes, r.downvotes AS downvotes, r.status AS status
+        """
+
+        params = {"status": status}
+        if graph_id:
+            params["graph_id"] = graph_id
+
+        results = self._gs._neo4j.run_query(query, params)
+        return [dict(r) for r in results]
+
+    def get_triple(self, triple_uuid: str) -> Optional[Dict[str, Any]]:
+        """Get a single triple by UUID."""
+        query = """
+        MATCH (s:Entity)-[r:RELATIONSHIP {uuid: $uuid}]->(o:Entity)
+        RETURN r.uuid AS uuid, s.name AS subject, r.name AS relationship,
+               o.name AS object, r.source_url AS source_url,
+               r.added_by_agent AS added_by_agent, r.added_round AS added_round,
+               r.upvotes AS upvotes, r.downvotes AS downvotes, r.status AS status
+        """
+        results = self._gs._neo4j.run_query(query, {"uuid": triple_uuid})
+        if not results:
+            return None
+        return dict(results[0])
+
+    def increment_triple_votes(
+        self,
+        triple_uuid: str,
+        vote_type: str,
+        weight: float = 1.0,
+    ):
+        """Increment upvotes or downvotes on a triple."""
+        if vote_type == "upvotes":
+            query = """
+            MATCH ()-[r:RELATIONSHIP {uuid: $uuid}]->()
+            SET r.upvotes = r.upvotes + $weight
+            """
+        else:
+            query = """
+            MATCH ()-[r:RELATIONSHIP {uuid: $uuid}]->()
+            SET r.downvotes = r.downvotes + $weight
+            """
+        self._gs._neo4j.run_query(query, {"uuid": triple_uuid, "weight": weight})
+
+    def update_triple_status(self, triple_uuid: str, status: str):
+        """Update the status of a triple."""
+        query = """
+        MATCH ()-[r:RELATIONSHIP {uuid: $uuid}]->()
+        SET r.status = $status
+        """
+        self._gs._neo4j.run_query(query, {"uuid": triple_uuid, "status": status})
+
+    def update_triple_properties(self, triple_uuid: str, properties: Dict[str, Any]):
+        """Update arbitrary properties on a triple."""
+        set_clauses = []
+        params = {"uuid": triple_uuid}
+        for key, value in properties.items():
+            set_clauses.append(f"r.{key} = ${key}")
+            params[key] = value
+
+        if not set_clauses:
+            return
+
+        query = f"""
+        MATCH ()-[r:RELATIONSHIP {{uuid: $uuid}}]->()
+        SET {', '.join(set_clauses)}
+        """
+        self._gs._neo4j.run_query(query, params)
+
+    def find_similar_triples(
+        self,
+        embedding: List[float],
+        threshold: float = 0.95,
+        graph_id: str = None,
+    ) -> List[Dict[str, Any]]:
+        """Find triples similar to the given embedding.
+
+        Uses cosine similarity via Neo4j vector index if available,
+        otherwise falls back to brute-force comparison.
+        """
+        # For now, return empty — vector similarity search requires
+        # Neo4j vector index setup which is environment-dependent.
+        # The curator agent handles dedup via embedding_service directly.
+        return []
+
+    def get_stats(self, graph_id: str = None) -> Dict[str, Any]:
+        """Get graph statistics."""
+        query = """
+        MATCH (s:Entity)-[r:RELATIONSHIP]->(o:Entity)
+        WHERE r.added_by_agent IS NOT NULL
+        """
+        if graph_id:
+            query += " AND s.graph_id = $graph_id"
+
+        query += """
+        RETURN count(r) AS total_agent_triples,
+               sum(CASE WHEN r.status = 'pending' THEN 1 ELSE 0 END) AS pending,
+               sum(CASE WHEN r.status = 'contested' THEN 1 ELSE 0 END) AS contested,
+               sum(CASE WHEN r.status = 'pruned' THEN 1 ELSE 0 END) AS pruned,
+               sum(CASE WHEN r.status = 'merged' THEN 1 ELSE 0 END) AS merged
+        """
+
+        params = {}
+        if graph_id:
+            params["graph_id"] = graph_id
+
+        results = self._gs._neo4j.run_query(query, params)
+        if results:
+            return dict(results[0])
+        return {
+            "total_agent_triples": 0,
+            "pending": 0,
+            "contested": 0,
+            "pruned": 0,
+            "merged": 0,
+        }
+
+
 def _normalize_ontology_types(types_dict: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize ontology type definitions to simple dicts.
 

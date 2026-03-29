@@ -18,7 +18,7 @@ from ..utils.logger import get_logger
 from ..utils.llm_client import LLMClient
 from .graph_builder import get_graph_service
 
-logger = get_logger('mirofish.graph_search')
+logger = get_logger('miroclaw.graph_search')
 
 
 @dataclass

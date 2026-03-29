@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from ..utils.logger import get_logger
 
-logger = get_logger('mirofish.simulation_tools')
+logger = get_logger('miroclaw.simulation_tools')
 
 # English stop words for keyword extraction
 def _truncate_to_sentence(text: str, max_chars: int = 500) -> str:

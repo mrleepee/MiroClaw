@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**MiroClaw** is a research-armed multi-agent prediction engine. It extends the MiroFish foundation with real-time web research, collaborative knowledge graph curation, adversarial evidence testing, and calibrated forecasting. Agents discover evidence from the open web during simulation, contribute structured triples to a living knowledge graph, and vote on each other's findings. The post-simulation graph is a collaboratively-researched, adversarially-tested knowledge base.
+**MiroClaw** is a research-armed multi-agent prediction engine. It extends the MiroClaw foundation with real-time web research, collaborative knowledge graph curation, adversarial evidence testing, and calibrated forecasting. Agents discover evidence from the open web during simulation, contribute structured triples to a living knowledge graph, and vote on each other's findings. The post-simulation graph is a collaboratively-researched, adversarially-tested knowledge base.
 
-**Current state:** The codebase is the MiroFish foundation being transformed into MiroClaw. The simulation engine (OASIS flat loop) is being replaced with CAMEL-native phased rounds. See `docs/specs/miroclaw.md` for the full behaviour spec and `docs/miroclaw-roadmap.md` for the product vision.
+**Current state:** The codebase is the MiroClaw foundation being transformed into MiroClaw. The simulation engine (OASIS flat loop) is being replaced with CAMEL-native phased rounds. See `docs/specs/miroclaw.md` for the full behaviour spec and `docs/miroclaw-roadmap.md` for the product vision.
 
 ## Common Commands
 
@@ -47,7 +47,7 @@ cp .env.example .env
 
 ## Architecture
 
-### High-Level Flow (Current — MiroFish foundation)
+### High-Level Flow (Current — MiroClaw foundation)
 
 ```
 Upload docs -> Ontology extraction (LLM) -> Graph construction (Neo4j)

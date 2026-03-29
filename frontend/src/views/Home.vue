@@ -2,7 +2,7 @@
   <div class="home-container">
     <!-- Top Navigation -->
     <nav class="navbar">
-      <div class="nav-brand">MIROFISH</div>
+      <div class="nav-brand">MIROCLAW</div>
       <div class="nav-links">
         <a href="https://github.com/mrleepee/myMiroFish" target="_blank" class="github-link">
           Visit our GitHub <span class="arrow">↗</span>
@@ -15,21 +15,21 @@
       <section class="hero-section">
         <div class="hero-left">
           <div class="tag-row">
-            <span class="orange-tag">Simple and Universal Swarm Intelligence Engine</span>
+            <span class="orange-tag">Research-Armed Multi-Agent Prediction Engine</span>
             <span class="version-text">/ v0.1-Preview</span>
           </div>
 
           <h1 class="main-title">
             Upload Any Report<br>
-            <span class="gradient-text">Instantly Simulate the Future</span>
+            <span class="gradient-text">Watch Agents Research, Debate &amp; Predict</span>
           </h1>
 
           <div class="hero-desc">
             <p>
-              With just a snippet of text, <span class="highlight-bold">MiroFish</span> can automatically generate a parallel world with up to <span class="highlight-orange">millions of Agents</span> based on the reality seeds within. Inject variables from a god's-eye view, and find <span class="highlight-code">"local optimal solutions"</span> in complex group interactions within dynamic environments.
+              <span class="highlight-bold">MiroClaw</span> transforms documents into a living knowledge graph populated by AI agents that research the open web, contribute structured evidence, vote on each other's findings, and produce <span class="highlight-orange">calibrated forecasts</span>. The result is a collaboratively-researched, adversarially-tested knowledge base — not just social simulation.
             </p>
             <p class="slogan-text">
-              Let the future play out in the Agent swarm, let decisions win after a hundred battles<span class="blinking-cursor">_</span>
+              Frozen knowledge becomes living evidence. Agents argue from what they discover, not just what they were given<span class="blinking-cursor">_</span>
             </p>
           </div>
 
@@ -39,7 +39,7 @@
         <div class="hero-right">
           <!-- Logo Area -->
           <div class="logo-container">
-            <img src="../assets/logo/MiroFish_logo_left.jpeg" alt="MiroFish Logo" class="hero-logo" />
+            <img src="../assets/logo/MiroClaw.png" alt="MiroClaw Logo" class="hero-logo" />
           </div>
 
           <button class="scroll-down-btn" @click="scrollToBottom">
@@ -58,18 +58,18 @@
 
           <h2 class="section-title">Ready</h2>
           <p class="section-desc">
-            Prediction engine standing by. Upload unstructured data to initialize the simulation sequence.
+            Research-armed prediction engine standing by. Upload documents to build a living knowledge graph and launch agent-driven phased simulation.
           </p>
 
           <!-- Metric Cards -->
           <div class="metrics-row">
             <div class="metric-card">
-              <div class="metric-value">Low Cost</div>
-              <div class="metric-label">~$5 per standard simulation</div>
+              <div class="metric-value">5 Phases</div>
+              <div class="metric-label">Research → Contribute → Vote → Curate → Oracle</div>
             </div>
             <div class="metric-card">
-              <div class="metric-value">High Scale</div>
-              <div class="metric-label">Up to millions of Agents</div>
+              <div class="metric-value">Living Graph</div>
+              <div class="metric-label">Agents add, vote on, and curate evidence in real time</div>
             </div>
           </div>
 
@@ -83,35 +83,35 @@
                 <span class="step-num">01</span>
                 <div class="step-info">
                   <div class="step-title">Graph Construction</div>
-                  <div class="step-desc">Reality seed extraction & individual/group memory injection & GraphRAG building</div>
+                  <div class="step-desc">Ontology extraction from seed documents, Neo4j knowledge graph building with FOAF actors & Schema.org context</div>
                 </div>
               </div>
               <div class="workflow-item">
                 <span class="step-num">02</span>
                 <div class="step-info">
                   <div class="step-title">Environment Setup</div>
-                  <div class="step-desc">Entity relationship extraction & persona generation & environment configuration Agent injection</div>
+                  <div class="step-desc">Agent profile generation from graph entities, epistemic flexibility assignment, simulation parameter configuration</div>
                 </div>
               </div>
               <div class="workflow-item">
                 <span class="step-num">03</span>
                 <div class="step-info">
-                  <div class="step-title">Start Simulation</div>
-                  <div class="step-desc">Dual-platform parallel simulation & automatic prediction requirement parsing & dynamic temporal memory updates</div>
+                  <div class="step-title">Phased Simulation</div>
+                  <div class="step-desc">Research-armed agents discover evidence, contribute triples, vote on findings, curator prunes & merges, oracle forecasts</div>
                 </div>
               </div>
               <div class="workflow-item">
                 <span class="step-num">04</span>
                 <div class="step-info">
-                  <div class="step-title">Report Generation</div>
-                  <div class="step-desc">ReportAgent with rich toolset for deep interaction with the post-simulation environment</div>
+                  <div class="step-title">Report &amp; Analytics</div>
+                  <div class="step-desc">Dispute maps, provenance trails, position drift, graph growth analytics, oracle time series</div>
                 </div>
               </div>
               <div class="workflow-item">
                 <span class="step-num">05</span>
                 <div class="step-info">
                   <div class="step-title">Deep Interaction</div>
-                  <div class="step-desc">Conversation with anyone in the simulated world & dialogue with ReportAgent</div>
+                  <div class="step-desc">Chat with simulated agents, query the living knowledge graph, explore contested evidence and forecast rationales</div>
                 </div>
               </div>
             </div>
@@ -176,11 +176,11 @@
                 <textarea
                   v-model="formData.simulationRequirement"
                   class="code-input"
-                  placeholder="// Enter simulation or prediction requirements in natural language (e.g., What public opinion trends would emerge if a company announced a controversial policy change?)"
+                  placeholder="// Describe what you want agents to investigate and predict (e.g., What evidence exists for and against silk road's impact on cryptocurrency adoption? How did law enforcement cooperation evolve across jurisdictions?)"
                   rows="6"
                   :disabled="loading"
                 ></textarea>
-                <div class="model-badge">Engine: MiroFish-V1.0</div>
+                <div class="model-badge">Engine: MiroClaw-V1.0</div>
               </div>
             </div>
 

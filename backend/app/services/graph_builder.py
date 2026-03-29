@@ -19,7 +19,7 @@ from ..models.task import TaskManager, TaskStatus
 from ..utils.logger import get_logger
 from .text_processor import TextProcessor
 
-logger = get_logger('mirofish.graph_builder')
+logger = get_logger('miroclaw.graph_builder')
 
 
 @dataclass
@@ -102,7 +102,7 @@ class GraphBuilderService:
         self,
         text: str,
         ontology: Dict[str, Any],
-        graph_name: str = "MiroFish Graph",
+        graph_name: str = "MiroClaw Graph",
         chunk_size: int = 500,
         chunk_overlap: int = 50,
         batch_size: int = 3
@@ -224,12 +224,12 @@ class GraphBuilderService:
 
     def create_graph(self, name: str) -> str:
         """Create a new graph"""
-        graph_id = f"mirofish_{uuid.uuid4().hex[:16]}"
+        graph_id = f"miroclaw_{uuid.uuid4().hex[:16]}"
 
         self.graph_service.create(
             graph_id=graph_id,
             name=name,
-            description="MiroFish Social Simulation Graph"
+            description="MiroClaw Social Simulation Graph"
         )
 
         return graph_id

@@ -269,6 +269,56 @@
       </div>
     </div>
 
+    <!-- MiroClaw Phase Tracker -->
+    <div class="miroclaw-panel" v-if="graphId">
+      <div class="miroclaw-header">
+        <span class="miroclaw-title">MIROCLAW PHASE TRACKER</span>
+        <button class="miroclaw-toggle" @click="showMiroclawDetails = !showMiroclawDetails">
+          {{ showMiroclawDetails ? 'Collapse' : 'Expand' }}
+        </button>
+      </div>
+
+      <!-- Phase Stepper -->
+      <div class="phase-stepper">
+        <div
+          v-for="p in miroclawPhases"
+          :key="p.key"
+          class="phase-step"
+          :class="{ active: miroclawCurrentPhase === p.key, completed: miroclawCompletedPhases.includes(p.key) }"
+        >
+          <div class="phase-dot"></div>
+          <span class="phase-label">{{ p.label }}</span>
+        </div>
+      </div>
+
+      <!-- Stats Bar -->
+      <div class="miroclaw-stats" v-if="miroclawStats">
+        <span class="stat-chip">Triples: {{ miroclawTriples.length }}</span>
+        <span class="stat-chip" v-if="miroclawStats.stats?.contested">Contested: {{ miroclawStats.stats.contested }}</span>
+        <span class="stat-chip" v-if="miroclawStats.stats?.pruned">Pruned: {{ miroclawStats.stats.pruned }}</span>
+      </div>
+
+      <!-- Triple Feed (collapsible) -->
+      <div class="triple-feed" v-if="showMiroclawDetails && miroclawTriples.length > 0">
+        <div
+          v-for="triple in miroclawTriples.slice(-20).reverse()"
+          :key="triple.uuid || triple.subject"
+          class="triple-card"
+        >
+          <div class="triple-relation">
+            ({{ triple.subject }}) &mdash;[{{ triple.relationship }}]&rarr; ({{ triple.object }})
+          </div>
+          <div class="triple-meta">
+            <span class="triple-agent">{{ triple.added_by_agent }}</span>
+            <span class="triple-round">R{{ triple.added_round }}</span>
+            <span class="triple-votes" v-if="triple.upvotes || triple.downvotes">
+              &uarr;{{ triple.upvotes || 0 }} &darr;{{ triple.downvotes || 0 }}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Bottom Info / Logs -->
     <div class="system-logs">
       <div class="log-header">
@@ -288,13 +338,14 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { 
-  startSimulation, 
+import {
+  startSimulation,
   stopSimulation,
-  getRunStatus, 
+  getRunStatus,
   getRunStatusDetail
 } from '../api/simulation'
 import { generateReport } from '../api/report'
+import { getTriples, getGraphStats } from '../api/miroclaw'
 
 const props = defineProps({
   simulationId: String,
@@ -323,6 +374,68 @@ const allActions = ref([]) // All actions (incremental accumulation)
 const actionIds = ref(new Set()) // Action ID set for deduplication
 const scrollContainer = ref(null)
 
+// MiroClaw state
+const showMiroclawDetails = ref(false)
+const miroclawCurrentPhase = ref('')
+const miroclawCompletedPhases = ref([])
+const miroclawTriples = ref([])
+const miroclawStats = ref(null)
+const miroclawPhases = [
+  { key: 'research', label: 'Research' },
+  { key: 'contribute', label: 'Contribute' },
+  { key: 'vote', label: 'Vote' },
+  { key: 'curate', label: 'Curate' },
+  { key: 'oracle', label: 'Oracle' },
+]
+let miroclawPollTimer = null
+
+const pollMiroclawData = async () => {
+  if (!graphId.value) return
+
+  try {
+    const [triplesRes, statsRes] = await Promise.all([
+      getTriples(graphId.value),
+      getGraphStats(graphId.value)
+    ])
+
+    if (triplesRes.success && triplesRes.data) {
+      const newTriples = triplesRes.data.triples || triplesRes.data || []
+      if (newTriples.length !== miroclawTriples.value.length) {
+        addLog(`[MiroClaw] Triples: ${newTriples.length}`)
+      }
+      miroclawTriples.value = newTriples
+    }
+
+    if (statsRes.success && statsRes.data) {
+      const stats = statsRes.data
+      miroclawStats.value = stats
+
+      // Track phase progress
+      if (stats.current_phase && stats.current_phase !== miroclawCurrentPhase.value) {
+        if (miroclawCurrentPhase.value) {
+          miroclawCompletedPhases.value = [...miroclawCompletedPhases.value, miroclawCurrentPhase.value]
+        }
+        miroclawCurrentPhase.value = stats.current_phase
+        addLog(`[MiroClaw] Phase: ${stats.current_phase}`)
+      }
+    }
+  } catch (err) {
+    console.warn('MiroClaw poll failed:', err)
+  }
+}
+
+const startMiroclawPolling = () => {
+  pollMiroclawData() // immediate first call
+  miroclawPollTimer = setInterval(pollMiroclawData, 4000)
+}
+
+const stopMiroclawPolling = () => {
+  if (miroclawPollTimer) {
+    clearInterval(miroclawPollTimer)
+    miroclawPollTimer = null
+  }
+}
+
 // Computed
 // Display actions chronologically (newest at bottom)
 const chronologicalActions = computed(() => {
@@ -336,6 +449,11 @@ const twitterActionsCount = computed(() => {
 
 const redditActionsCount = computed(() => {
   return allActions.value.filter(a => a.platform === 'reddit').length
+})
+
+// Derive graph ID from props
+const graphId = computed(() => {
+  return props.graphData?.graph_id || props.projectData?.graph_id || null
 })
 
 // Format simulated elapsed time (based on rounds and minutes per round)
@@ -420,6 +538,7 @@ const doStartSimulation = async () => {
 
       startStatusPolling()
       startDetailPolling()
+      startMiroclawPolling()
     } else {
       startError.value = res.error || 'Start failed'
       addLog(`✗ Start failed: ${res.error || 'Unknown error'}`)
@@ -480,6 +599,7 @@ const stopPolling = () => {
     clearInterval(detailTimer)
     detailTimer = null
   }
+  stopMiroclawPolling()
 }
 
 // Track last round for each platform, detect changes and log
@@ -1249,6 +1369,149 @@ onUnmounted(() => {
 .log-time { color: #555; min-width: 75px; }
 .log-msg { color: #BBB; word-break: break-all; }
 .mono { font-family: 'JetBrains Mono', monospace; }
+
+/* --- MiroClaw Phase Tracker --- */
+.miroclaw-panel {
+  flex-shrink: 0;
+  background: #FAFAFA;
+  border-top: 1px solid #EAEAEA;
+  padding: 12px 24px;
+}
+
+.miroclaw-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.miroclaw-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #333;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.miroclaw-toggle {
+  font-size: 10px;
+  font-weight: 600;
+  background: #FFF;
+  border: 1px solid #DDD;
+  border-radius: 2px;
+  padding: 3px 8px;
+  cursor: pointer;
+  color: #666;
+  transition: all 0.2s;
+}
+
+.miroclaw-toggle:hover {
+  border-color: #333;
+  color: #000;
+}
+
+.phase-stepper {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.phase-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 2px;
+  background: #FFF;
+  border: 1px solid #EEE;
+  transition: all 0.3s;
+}
+
+.phase-step.active {
+  border-color: #333;
+  background: #FFF;
+}
+
+.phase-step.completed {
+  border-color: #1A936F;
+  background: #F2FAF6;
+}
+
+.phase-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #CCC;
+}
+
+.phase-step.active .phase-dot { background: #333; }
+.phase-step.completed .phase-dot { background: #1A936F; }
+
+.phase-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.phase-step.active .phase-label { color: #000; }
+.phase-step.completed .phase-label { color: #1A936F; }
+
+.miroclaw-stats {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.stat-chip {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  background: #FFF;
+  border: 1px solid #EAEAEA;
+  border-radius: 2px;
+  color: #666;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.triple-feed {
+  max-height: 200px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid #EEE;
+  padding-top: 8px;
+}
+
+.triple-feed::-webkit-scrollbar { width: 4px; }
+.triple-feed::-webkit-scrollbar-thumb { background: #DDD; border-radius: 2px; }
+
+.triple-card {
+  background: #FFF;
+  border: 1px solid #EEE;
+  border-radius: 2px;
+  padding: 8px 12px;
+}
+
+.triple-relation {
+  font-size: 11px;
+  color: #333;
+  font-family: 'JetBrains Mono', monospace;
+  line-height: 1.4;
+}
+
+.triple-meta {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+  font-size: 9px;
+  color: #999;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.triple-agent { color: #666; }
 
 /* Loading spinner for button */
 .loading-spinner-small {

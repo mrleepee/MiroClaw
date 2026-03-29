@@ -1,5 +1,5 @@
 """
-MiroFish Backend Entry Point
+MiroClaw Backend Entry Point
 """
 
 import os

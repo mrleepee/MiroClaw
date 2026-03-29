@@ -1,5 +1,5 @@
 """
-MiroFish Backend - Flask Application Factory
+MiroClaw Backend - Flask Application Factory
 """
 
 import os
@@ -27,7 +27,7 @@ def create_app(config_class=Config):
         app.json.ensure_ascii = False
 
     # Set up logging
-    logger = setup_logger('mirofish')
+    logger = setup_logger('miroclaw')
 
     # Only print startup info in reloader subprocess (avoid double printing in debug mode)
     is_reloader_process = os.environ.get('WERKZEUG_RUN_MAIN') == 'true'
@@ -36,7 +36,7 @@ def create_app(config_class=Config):
 
     if should_log_startup:
         logger.info("=" * 50)
-        logger.info("MiroFish Backend starting...")
+        logger.info("MiroClaw Backend starting...")
         logger.info("=" * 50)
 
     # Enable CORS
@@ -51,14 +51,14 @@ def create_app(config_class=Config):
     # Request logging middleware
     @app.before_request
     def log_request():
-        logger = get_logger('mirofish.request')
+        logger = get_logger('miroclaw.request')
         logger.debug(f"Request: {request.method} {request.path}")
         if request.content_type and 'json' in request.content_type:
             logger.debug(f"Body: {request.get_json(silent=True)}")
 
     @app.after_request
     def log_response(response):
-        logger = get_logger('mirofish.request')
+        logger = get_logger('miroclaw.request')
         logger.debug(f"Response: {response.status_code}")
         return response
 
@@ -71,9 +71,9 @@ def create_app(config_class=Config):
     # Health check endpoint
     @app.route('/health')
     def health():
-        return {'status': 'ok', 'service': 'MiroFish Backend'}
+        return {'status': 'ok', 'service': 'MiroClaw Backend'}
 
     if should_log_startup:
-        logger.info("MiroFish Backend started successfully")
+        logger.info("MiroClaw Backend started successfully")
 
     return app

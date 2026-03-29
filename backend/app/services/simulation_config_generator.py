@@ -22,7 +22,7 @@ from ..config import Config
 from ..utils.logger import get_logger
 from .graph_entity_reader import EntityNode, GraphEntityReader
 
-logger = get_logger('mirofish.simulation_config')
+logger = get_logger('miroclaw.simulation_config')
 
 # Import stage 4 optimization settings
 SIMULATION_AGENT_ACTIVITY_RATE = Config.SIMULATION_AGENT_ACTIVITY_RATE

@@ -5,7 +5,7 @@ description = "MiroClaw - Research-armed multi-agent prediction engine with coll
 requires-python = ">=3.11"
 license = { text = "AGPL-3.0" }
 authors = [
-    { name = "MiroFish Team" }
+    { name = "MiroClaw Team" }
 ]
 
 dependencies = [
