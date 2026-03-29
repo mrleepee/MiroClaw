@@ -10,7 +10,7 @@ Satisfies: R11 (Oracle agents), R07 (Oracle consultation budget)
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from ..utils.logger import get_logger
+from ...utils.logger import get_logger
 
 logger = get_logger('miroclaw.oracle')
 
