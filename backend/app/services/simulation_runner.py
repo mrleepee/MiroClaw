@@ -1424,6 +1424,48 @@ class SimulationRunner:
             )
             agents.append(agent)
 
+        # ── Wire tool instances to agents ───────────────────────────
+        from ..services.graph_builder import get_graph_service
+        from ..agents.tools.research import ResearchTool
+        from ..agents.tools.graph_write import GraphWriteTool, TripleValidator
+        from ..agents.tools.voting import VotingTool
+
+        try:
+            graph_service = get_graph_service()
+        except Exception as e:
+            logger.warning(f"Failed to get shared graph service, agents will have limited tools: {e}")
+            graph_service = None
+
+        for agent in agents:
+            research_tool = ResearchTool(
+                agent_id=agent.agent_id,
+                budget_tracker=None,
+            )
+            if graph_service:
+                graph_write_tool = GraphWriteTool(
+                    graph_service=graph_service,
+                    validator=TripleValidator(
+                        graph_service=graph_service,
+                        skip_url_reachability=True,  # Skip HTTP checks for smoke test
+                    ),
+                )
+                voting_tool = VotingTool(graph_service=graph_service)
+            else:
+                graph_write_tool = None
+                voting_tool = None
+
+            agent.register_tools(
+                research_tool=research_tool,
+                graph_write_tool=graph_write_tool,
+                voting_tool=voting_tool,
+                graph_service=graph_service,
+            )
+
+        logger.info(
+            f"MiroClaw simulation ready: {len(agents)} agents with tools, "
+            f"graph_id={graph_id}, {total_rounds} rounds"
+        )
+
         config = SimulationConfig(
             total_rounds=total_rounds,
             oracle_forecast_interval=oracle_forecast_interval,

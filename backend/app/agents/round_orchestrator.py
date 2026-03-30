@@ -21,6 +21,8 @@ Satisfies: R02 (Phased round orchestration)
 """
 
 import asyncio
+import json
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
@@ -212,7 +214,7 @@ class RoundOrchestrator:
 
         else:
             # Default: run each agent's step for this phase
-            await self._default_phase_execution(phase, round_num, relevant_agents)
+            await self._default_phase_execution(phase, round_num, relevant_agents, result)
 
     def _get_agents_for_phase(self, phase: Phase) -> List[MiroClawAgent]:
         """Get the agents that participate in a given phase."""
@@ -232,31 +234,218 @@ class RoundOrchestrator:
         phase: Phase,
         round_num: int,
         agents: List[MiroClawAgent],
+        result: Optional[RoundResult] = None,
     ):
-        """Default phase execution: each agent receives a phase prompt.
+        """Default phase execution with text-based action parsing.
 
-        In production, this would invoke CAMEL Workforce task channels
-        to distribute work. For now, it sends a phase-appropriate prompt
-        to each agent.
+        Since MiniMax-M2.7 doesn't support OpenAI-style function/tool calling,
+        we ask the LLM to output structured JSON actions, then parse and
+        execute them directly against the tool instances.
         """
-        phase_prompt = self._build_phase_prompt(phase, round_num)
+        phase_prompt = self._build_action_prompt(phase, round_num)
+
+        phase_triples = 0
+        phase_votes = 0
 
         async def agent_step(agent: MiroClawAgent):
+            nonlocal phase_triples, phase_votes
             try:
                 msg = BaseMessage.make_user_message(
                     role_name="system",
                     content=phase_prompt,
                 )
+                logger.info(
+                    f"Agent {agent.agent_id} starting {phase.value} phase "
+                    f"(round {round_num}, tools={len(agent.tool_list)})"
+                )
                 response = agent.step(msg)
+
+                # Parse and execute text actions from the response
+                if response and hasattr(response, 'msgs') and response.msgs:
+                    content = str(response.msgs[0].content) if response.msgs else ""
+                    executed = self._parse_and_execute_actions(
+                        agent, phase, round_num, content
+                    )
+                    if executed:
+                        logger.info(
+                            f"Agent {agent.agent_id} executed {executed} action(s) "
+                            f"in {phase.value} phase (round {round_num})"
+                        )
+                        # Track results
+                        if phase == Phase.CONTRIBUTE:
+                            phase_triples += executed
+                        elif phase == Phase.VOTE:
+                            phase_votes += executed
+
+                logger.info(
+                    f"Agent {agent.agent_id} completed {phase.value} phase "
+                    f"(round {round_num})"
+                )
                 return response
             except Exception as e:
                 logger.warning(
-                    f"Agent {agent.agent_id} failed in {phase.value}: {e}"
+                    f"Agent {agent.agent_id} failed in {phase.value}: {e}",
+                    exc_info=True,
                 )
                 return None
 
         # Execute all agents in parallel for this phase
         await asyncio.gather(*[agent_step(a) for a in agents])
+
+        # Update result counters
+        if result:
+            if phase == Phase.CONTRIBUTE:
+                result.triples_added += phase_triples
+            elif phase == Phase.VOTE:
+                result.votes_cast += phase_votes
+
+    def _parse_and_execute_actions(
+        self,
+        agent: MiroClawAgent,
+        phase: Phase,
+        round_num: int,
+        content: str,
+    ) -> int:
+        """Parse JSON actions from LLM text response and execute them.
+
+        Returns the number of actions successfully executed.
+        """
+        actions = self._extract_json_actions(content)
+        executed = 0
+
+        for action in actions:
+            tool_name = action.get("tool", action.get("action", ""))
+            params = action.get("params", action.get("parameters", {}))
+
+            try:
+                result = self._execute_action(
+                    agent, phase, round_num, tool_name, params
+                )
+                if result:
+                    executed += 1
+                    logger.debug(
+                        f"Agent {agent.agent_id} action '{tool_name}' result: "
+                        f"{str(result)[:100]}"
+                    )
+            except Exception as e:
+                logger.warning(
+                    f"Agent {agent.agent_id} action '{tool_name}' failed: {e}"
+                )
+
+        return executed
+
+    @staticmethod
+    def _extract_json_actions(text: str) -> List[Dict[str, Any]]:
+        """Extract JSON action blocks from LLM text response.
+
+        Supports formats:
+        - ```json ... ```
+        - {"tool": "add_triple", "params": {...}}
+        - [{"tool": "search", "params": {...}}, ...]
+        """
+        actions: List[Dict[str, Any]] = []
+
+        # Try to find JSON blocks (code fences or raw)
+        json_patterns = [
+            r'```json\s*\n(.*?)\n\s*```',  # fenced
+            r'```\s*\n(.*?)\n\s*```',       # generic fence
+        ]
+
+        json_str = None
+        for pattern in json_patterns:
+            match = re.search(pattern, text, re.DOTALL)
+            if match:
+                json_str = match.group(1).strip()
+                break
+
+        # If no fenced block, try to find raw JSON
+        if not json_str:
+            # Look for array or object starting with { or [
+            match = re.search(r'(\[[\s\S]*?\]|\{[\s\S]*?"(?:tool|action)"[\s\S]*?\})', text)
+            if match:
+                json_str = match.group(1).strip()
+
+        if not json_str:
+            return actions
+
+        try:
+            parsed = json.loads(json_str)
+            if isinstance(parsed, list):
+                actions.extend(parsed)
+            elif isinstance(parsed, dict):
+                actions.append(parsed)
+        except json.JSONDecodeError:
+            # Try individual objects
+            for match in re.finditer(r'\{[^{}]*"(?:tool|action)"[^{}]*\}', text):
+                try:
+                    actions.append(json.loads(match.group(0)))
+                except json.JSONDecodeError:
+                    continue
+
+        return actions
+
+    def _execute_action(
+        self,
+        agent: MiroClawAgent,
+        phase: Phase,
+        round_num: int,
+        tool_name: str,
+        params: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Execute a single parsed action using the agent's tool instances."""
+        tool_name_lower = tool_name.lower().replace("-", "_").replace(" ", "_")
+
+        # Research phase tools
+        if phase == Phase.RESEARCH:
+            if tool_name_lower in ("search", "web_search"):
+                if agent._research_tool:
+                    return agent._research_tool.search(
+                        query=params.get("query", "")
+                    )
+            elif tool_name_lower in ("extract", "read_page"):
+                if agent._research_tool:
+                    return agent._research_tool.extract(
+                        url=params.get("url", "")
+                    )
+            elif tool_name_lower in ("get_graph_state", "read_graph"):
+                if agent._research_tool and agent._graph_service:
+                    return agent._research_tool.get_graph_state(
+                        agent._graph_service, params.get("query", "")
+                    )
+
+        # Contribute phase tools
+        elif phase == Phase.CONTRIBUTE:
+            if tool_name_lower in ("add_triple", "contribute_triple"):
+                if agent._graph_write_tool:
+                    return agent._graph_write_tool.add_triple(
+                        subject=params.get("subject", ""),
+                        subject_type=params.get("subject_type", ""),
+                        relationship=params.get("relationship", ""),
+                        object=params.get("object", ""),
+                        object_type=params.get("object_type", ""),
+                        source_url=params.get("source_url", ""),
+                        added_by_agent=agent.agent_id,
+                        added_round=round_num,
+                    )
+
+        # Vote phase tools
+        elif phase == Phase.VOTE:
+            if tool_name_lower == "upvote":
+                if agent._voting_tool:
+                    return agent._voting_tool.upvote(
+                        agent_id=agent.agent_id,
+                        triple_uuid=params.get("triple_uuid", ""),
+                        round_num=round_num,
+                    )
+            elif tool_name_lower == "downvote":
+                if agent._voting_tool:
+                    return agent._voting_tool.downvote(
+                        agent_id=agent.agent_id,
+                        triple_uuid=params.get("triple_uuid", ""),
+                        round_num=round_num,
+                    )
+
+        return None
 
     @staticmethod
     def _build_phase_prompt(phase: Phase, round_num: int) -> str:
@@ -315,3 +504,62 @@ class RoundOrchestrator:
             ),
         }
         return prompts.get(phase, f"Round {round_num} — {phase.value.upper()} PHASE")
+
+    def _build_action_prompt(self, phase: Phase, round_num: int) -> str:
+        """Build phase prompt with JSON action instructions.
+
+        Since the LLM may not support native function/tool calling, we ask
+        agents to respond with structured JSON actions that we parse and
+        execute server-side.
+        """
+        base_prompt = self._build_phase_prompt(phase, round_num)
+
+        action_instructions = {
+            Phase.RESEARCH: (
+                '\n\n## Response Format\n\n'
+                'Respond with your reasoning, then output ONE JSON action block:\n'
+                '```json\n'
+                '{"tool": "search", "params": {"query": "your search query"}}\n'
+                '```\n\n'
+                'Available tools:\n'
+                '- `search` — params: {"query": string}\n'
+                '- `extract` — params: {"url": string}\n'
+                '- `get_graph_state` — params: {"query": string} (optional filter)\n'
+            ),
+            Phase.CONTRIBUTE: (
+                '\n\n## Response Format\n\n'
+                'Based on your research and persona, output ONE JSON action block to add a triple:\n'
+                '```json\n'
+                '{"tool": "add_triple", "params": {\n'
+                '  "subject": "Entity Name",\n'
+                '  "subject_type": "Person|Organization|...",\n'
+                '  "relationship": "RELATIONSHIP_TYPE",\n'
+                '  "object": "Entity Name",\n'
+                '  "object_type": "Person|Organization|Policy|...",\n'
+                '  "source_url": ""\n'
+                '}}\n'
+                '```\n\n'
+                'You MUST output exactly one add_triple action. The source_url can be empty string '
+                'if you have no URL. Use entity types from: Person, Organization, Group, Policy, '
+                'Event, CreativeWork, Place.\n'
+            ),
+            Phase.VOTE: (
+                '\n\n## Response Format\n\n'
+                'Respond with your reasoning, then output JSON action(s):\n'
+                '```json\n'
+                '[{"tool": "upvote", "params": {"triple_uuid": "..."}},\n'
+                ' {"tool": "downvote", "params": {"triple_uuid": "..."}}]\n'
+                '```\n\n'
+                'Available tools:\n'
+                '- `upvote` — params: {"triple_uuid": string}\n'
+                '- `downvote` — params: {"triple_uuid": string}\n'
+            ),
+            Phase.CURATE: (
+                '\n\nOutput your curation decisions as JSON.'
+            ),
+            Phase.ORACLE: (
+                '\n\nOutput your forecasts as JSON.'
+            ),
+        }
+
+        return base_prompt + action_instructions.get(phase, "")

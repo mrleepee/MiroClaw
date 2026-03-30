@@ -77,11 +77,13 @@ class TripleValidator:
         embedding_service=None,
         graph_service=None,
         similarity_threshold: float = 0.95,
+        skip_url_reachability: bool = False,
     ):
         self.ontology_entity_types = ontology_entity_types or set()
         self.embedding_service = embedding_service
         self.graph_service = graph_service
         self.similarity_threshold = similarity_threshold
+        self.skip_url_reachability = skip_url_reachability
 
     def validate_format(self, triple: TripleSubmission) -> ValidationResult:
         """Check 1: Verify the submission is a structured triple, not free text."""
@@ -164,6 +166,10 @@ class TripleValidator:
         """
         if not triple.source_url:
             # No source URL provided — allowed but flagged
+            return ValidationResult(valid=True)
+
+        if self.skip_url_reachability:
+            # Skip HTTP HEAD check (useful when no browser research is available)
             return ValidationResult(valid=True)
 
         # Basic URL format check
@@ -253,6 +259,12 @@ class GraphWriteTool:
         graph_service,
         validator: TripleValidator,
     ):
+        # Wrap with MiroClawGraphWriteAPI if raw LocalGraphService passed
+        from ...services.local_graph.graph_service import MiroClawGraphWriteAPI
+        if isinstance(graph_service, MiroClawGraphWriteAPI):
+            self._write_api = graph_service
+        else:
+            self._write_api = MiroClawGraphWriteAPI(graph_service)
         self.graph_service = graph_service
         self.validator = validator
 
@@ -302,9 +314,9 @@ class GraphWriteTool:
             )
             return {"success": False, "validation": validation.to_dict()}
 
-        # Write to graph
+        # Write to graph via the MiroClaw write API
         try:
-            self.graph_service.write_triple(
+            self._write_api.write_triple(
                 subject=triple.subject,
                 subject_type=triple.subject_type,
                 relationship=triple.relationship,

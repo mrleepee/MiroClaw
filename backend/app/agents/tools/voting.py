@@ -96,6 +96,12 @@ class VotingTool:
         contested_upvote_threshold: int = 3,
         contested_downvote_threshold: int = 3,
     ):
+        # Wrap with MiroClawGraphWriteAPI for triple operations
+        from ...services.local_graph.graph_service import MiroClawGraphWriteAPI
+        if isinstance(graph_service, MiroClawGraphWriteAPI):
+            self._api = graph_service
+        else:
+            self._api = MiroClawGraphWriteAPI(graph_service)
         self.graph_service = graph_service
         self.vote_record = vote_record or VoteRecord()
         self.contested_upvote_threshold = contested_upvote_threshold
@@ -166,11 +172,11 @@ class VotingTool:
         # Update triple vote counts in graph
         try:
             if direction == "upvote":
-                self.graph_service.increment_triple_votes(
+                self._api.increment_triple_votes(
                     triple_uuid, "upvotes", influence_weight
                 )
             else:
-                self.graph_service.increment_triple_votes(
+                self._api.increment_triple_votes(
                     triple_uuid, "downvotes", influence_weight
                 )
 
@@ -190,7 +196,7 @@ class VotingTool:
     def _check_contested_status(self, triple_uuid: str):
         """Auto-assign contested status when both sides exceed threshold."""
         try:
-            triple = self.graph_service.get_triple(triple_uuid)
+            triple = self._api.get_triple(triple_uuid)
             if not triple:
                 return
 
@@ -203,7 +209,7 @@ class VotingTool:
                 and downvotes >= self.contested_downvote_threshold
                 and current_status != "contested"
             ):
-                self.graph_service.update_triple_status(triple_uuid, "contested")
+                self._api.update_triple_status(triple_uuid, "contested")
                 logger.info(
                     f"Triple {triple_uuid} marked as contested "
                     f"(upvotes={upvotes}, downvotes={downvotes})"

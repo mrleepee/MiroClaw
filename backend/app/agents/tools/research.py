@@ -131,15 +131,22 @@ class ResearchTool:
             if graph_service is None:
                 return {"success": False, "error": "No graph service available"}
 
+            # Wrap with MiroClawGraphWriteAPI for triple query methods
+            from ...services.local_graph.graph_service import MiroClawGraphWriteAPI
+            if isinstance(graph_service, MiroClawGraphWriteAPI):
+                api = graph_service
+            else:
+                api = MiroClawGraphWriteAPI(graph_service)
+
             # Get recent triples and contested triples
-            recent = graph_service.get_recent_triples(limit=20)
-            contested = graph_service.get_triples_by_status("contested")
+            recent = api.get_recent_triples(limit=20)
+            contested = api.get_triples_by_status("contested")
 
             return {
                 "success": True,
                 "recent_triples": recent,
                 "contested_triples": contested,
-                "graph_stats": graph_service.get_stats(),
+                "graph_stats": api.get_stats(),
             }
         except Exception as e:
             logger.error(f"Graph state read failed: {e}")

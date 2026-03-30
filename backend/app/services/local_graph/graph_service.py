@@ -517,14 +517,27 @@ class MiroClawGraphWriteAPI:
         """
         triple_uuid = _new_uuid()
 
-        query = """
-        MERGE (s:Entity {name: $subject, graph_id: $graph_id})
-        ON CREATE SET s.uuid = randomUUID(), s.labels_json = json_encode([$subject_type]),
+        import json as _json
+        subject_labels_json = _json.dumps([subject_type])
+        object_labels_json = _json.dumps([object_type])
+
+        # Build MERGE clause — use graph_id only when provided
+        if graph_id:
+            entity_merge = "MERGE (e:Entity {name: $name, graph_id: $graph_id})"
+        else:
+            entity_merge = "MERGE (e:Entity {name: $name})"
+
+        s_merge = entity_merge.replace("e:", "s:").replace("$name", "$subject")
+        o_merge = entity_merge.replace("e:", "o:").replace("$name", "$object")
+
+        query = f"""
+        {s_merge}
+        ON CREATE SET s.uuid = randomUUID(), s.labels_json = $subject_labels_json,
                       s.entity_category = 'agent_added', s.created_at = datetime()
-        MERGE (o:Entity {name: $object, graph_id: $graph_id})
-        ON CREATE SET o.uuid = randomUUID(), o.labels_json = json_encode([$object_type]),
+        {o_merge}
+        ON CREATE SET o.uuid = randomUUID(), o.labels_json = $object_labels_json,
                       o.entity_category = 'agent_added', o.created_at = datetime()
-        CREATE (s)-[r:RELATIONSHIP {
+        CREATE (s)-[r:RELATIONSHIP {{
             uuid: $triple_uuid,
             name: $relationship,
             fact: $fact,
@@ -536,7 +549,7 @@ class MiroClawGraphWriteAPI:
             downvotes: $downvotes,
             status: $status,
             created_at: datetime()
-        }]->(o)
+        }}]->(o)
         RETURN r.uuid AS uuid
         """
 
@@ -544,12 +557,11 @@ class MiroClawGraphWriteAPI:
         params = {
             "triple_uuid": triple_uuid,
             "subject": subject,
-            "subject_type": subject_type,
+            "subject_labels_json": subject_labels_json,
             "object": object,
-            "object_type": object_type,
+            "object_labels_json": object_labels_json,
             "relationship": relationship,
             "fact": fact,
-            "graph_id": graph_id,
             "source_url": properties.get("source_url", ""),
             "added_by_agent": properties.get("added_by_agent", ""),
             "added_round": properties.get("added_round", 0),
@@ -558,6 +570,8 @@ class MiroClawGraphWriteAPI:
             "downvotes": properties.get("downvotes", 0),
             "status": properties.get("status", "pending"),
         }
+        if graph_id:
+            params["graph_id"] = graph_id
 
         self._gs._neo4j.run_query(query, params)
         logger.info(f"Wrote triple {triple_uuid}: {fact}")
