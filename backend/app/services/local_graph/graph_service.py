@@ -523,12 +523,11 @@ class MiroClawGraphWriteAPI:
 
         # Build MERGE clause — use graph_id only when provided
         if graph_id:
-            entity_merge = "MERGE (e:Entity {name: $name, graph_id: $graph_id})"
+            s_merge = "MERGE (s:Entity {name: $subject, graph_id: $graph_id})"
+            o_merge = "MERGE (o:Entity {name: $object, graph_id: $graph_id})"
         else:
-            entity_merge = "MERGE (e:Entity {name: $name})"
-
-        s_merge = entity_merge.replace("e:", "s:").replace("$name", "$subject")
-        o_merge = entity_merge.replace("e:", "o:").replace("$name", "$object")
+            s_merge = "MERGE (s:Entity {name: $subject})"
+            o_merge = "MERGE (o:Entity {name: $object})"
 
         query = f"""
         {s_merge}

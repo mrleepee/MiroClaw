@@ -583,6 +583,25 @@ view_type options:
 【Returns】
 - Round-by-round activity data, quote chain trees, or detected position shifts with evidence"""
 
+TOOL_DESC_MIROCLAW_PHASES = """\
+【MiroClaw Phase Analysis - Round-by-Round Simulation Evolution】
+Analyzes the phased MiroClaw simulation: how agents researched, contributed triples to the knowledge graph, voted on each other's findings, and how the graph evolved across rounds. This is the primary tool for understanding HOW the simulation progressed, not just WHAT was discussed.
+
+analysis_type options:
+- "evolution": Round-by-round breakdown showing how the simulation progressed — what agents researched, which triples were added per round, how evidence accumulated
+- "triples": Detailed triple data grouped by round — subject, relationship, object, agent who added it, voting outcomes, status
+- "agent_contributions": Per-agent breakdown of research activity, triple contributions, and voting patterns across rounds
+- "voting_patterns": How agents voted on each other's triples — agreements, disagreements, contested triples
+
+【When to use】
+- Writing about how the simulation EVOLVED across rounds (not just the end state)
+- Describing the knowledge graph growth and what was added when
+- Analyzing agent behavior patterns: who contributed what, who voted how
+- Explaining the difference between early rounds (seed-based reasoning) and later rounds (research-enhanced reasoning)
+
+【Returns】
+- Structured round-by-round data with triples, votes, and agent activity"""
+
 TOOL_DESC_INTERVIEW_AGENTS = """\
 【Deep Interview - Real Agent Interviews (Dual Platform)】
 Call the interview API in the OASIS simulation environment to conduct real interviews with running simulated Agents.
@@ -641,7 +660,10 @@ Write a "future forecast report" that answers:
 
 【Section structure guidance】
 - The first section should be a "Simulation Overview" that introduces the key agents, their roles/types, their positions/stances, and the simulation scale. This grounds the reader before diving into analysis.
-- The remaining sections should cover the core predictive findings, debates, trends, and conclusions.
+- If this is a a phased MiroClaw simulation (agents contribute knowledge graph triples, vote on findings), include:
+  - A "Simulation Evolution" section that shows HOW the simulation progressed across rounds: what changed between early rounds (seed-based reasoning) and later rounds (research-enhanced reasoning). Use the `miroclaw_phase_analysis` tool with analysis_type="evolution" to get this data.
+  - A "Knowledge Graph Growth" section that shows which triples were added, what they voted on, which became contested or how evidence accumulated. Use `miroclaw_phase_analysis` tool with analysis_type="triples" to get the data.
+- The remaining sections should cover core predictive findings, debates, trends, and conclusions.
 
 Please output the report outline in JSON format using the following structure:
 {
@@ -789,8 +811,11 @@ This section analyzes...
 - simulation_debates: Find opposing viewpoints and disagreements between agent types on specific topics
 - simulation_content_analysis: Analyze themes, engagement trends, content quality, and simulation overview statistics
 - simulation_timeline: Round-by-round activity breakdown, quote chains showing content propagation, and position shift detection
+- miroclaw_phase_analysis: **For MiroClaw simulations** — round-by-round evolution, triples added per round, agent contributions, voting patterns. Use analysis_type="evolution" for simulation progression, "triples" for knowledge graph data, "agent_contributions" for per-agent breakdown, "voting_patterns" for voting analysis.
 
 **For the first "Overview" section**: Call simulation_content_analysis with analysis_type="overview" to get the full agent roster, then call simulation_content_analysis with analysis_type="engagement" to identify the most active/influential agents. This gives you everything needed to introduce the simulation cast.
+
+**For "Simulation Evolution" or "Knowledge Graph Growth" sections**: Call miroclaw_phase_analysis with analysis_type="evolution" to get round-by-round data, then call it with analysis_type="triples" to get the detailed triple data. This gives you everything needed to describe how the simulation progressed and what knowledge was discovered.
 
 ═══════════════════════════════════════════════════════════════
 【Workflow】
@@ -1070,6 +1095,13 @@ class ReportAgent:
                     "agent_type": "Filter by agent type (optional)",
                     "limit": "Max items (optional, default 20)"
                 }
+            },
+            "miroclaw_phase_analysis": {
+                "name": "miroclaw_phase_analysis",
+                "description": TOOL_DESC_MIROCLAW_PHASES,
+                "parameters": {
+                    "analysis_type": "One of: evolution, triples, agent_contributions, voting_patterns"
+                }
             }
         }
     
@@ -1181,6 +1213,13 @@ class ReportAgent:
                     limit=int(parameters.get("limit", 20)),
                 )
 
+            # ========== MiroClaw phased simulation tools ==========
+
+            elif tool_name == "miroclaw_phase_analysis":
+                return self._miroclaw_phase_analysis(
+                    analysis_type=parameters.get("analysis_type", "evolution"),
+                )
+
             # ========== Backward-compatible legacy tools (internally redirected to new tools) ==========
             
             elif tool_name == "search_graph":
@@ -1221,11 +1260,207 @@ class ReportAgent:
         except Exception as e:
             logger.error(f"Tool execution failed: {tool_name}, error: {str(e)}")
             return f"Tool execution failed: {str(e)}"
-    
+
+    def _miroclaw_phase_analysis(self, analysis_type: str = "evolution") -> str:
+        """Analyze MiroClaw phased simulation data: round evolution, triples, agent contributions, voting."""
+        try:
+            # 1. Load miroclaw_results.json
+            sim_dir = os.path.join(
+                Config.UPLOAD_FOLDER, 'simulations', self.simulation_id
+            )
+            results_path = os.path.join(sim_dir, "miroclaw_results.json")
+            results = []
+            if os.path.exists(results_path):
+                with open(results_path, 'r', encoding='utf-8') as f:
+                    results = json.load(f)
+
+            # 2. Query Neo4j for triples with round metadata
+            from .local_graph.graph_service import MiroClawGraphWriteAPI
+            from .graph_builder import get_graph_service
+            try:
+                graph_service = get_graph_service()
+                api = MiroClawGraphWriteAPI(graph_service)
+            except Exception:
+                graph_service = None
+                api = None
+
+            triples_by_round = {}
+            if api:
+                try:
+                    all_triples = api.get_agent_triples()
+                    for t in all_triples:
+                        rnd = t.get("added_round", 0)
+                        if rnd not in triples_by_round:
+                            triples_by_round[rnd] = []
+                        triples_by_round[rnd].append(t)
+                except Exception as e:
+                    logger.warning(f"Failed to query agent triples: {e}")
+
+            # 3. Build response based on analysis type
+            if analysis_type == "evolution":
+                return self._format_evolution(results, triples_by_round)
+            elif analysis_type == "triples":
+                return self._format_triples(triples_by_round)
+            elif analysis_type == "agent_contributions":
+                return self._format_agent_contributions(triples_by_round)
+            elif analysis_type == "voting_patterns":
+                return self._format_voting_patterns(triples_by_round, results)
+            else:
+                return self._format_evolution(results, triples_by_round)
+
+        except Exception as e:
+            logger.error(f"MiroClaw phase analysis failed: {e}")
+            return f"MiroClaw phase analysis unavailable: {str(e)}"
+
+    @staticmethod
+    def _format_evolution(results: list, triples_by_round: dict) -> str:
+        """Format round-by-round evolution data."""
+        lines = ["## MiroClaw Simulation Evolution", ""]
+
+        if not results and not triples_by_round:
+            return "No MiroClaw phased simulation data found for this simulation."
+
+        for rnd_data in sorted(results, key=lambda x: x.get("round_num", 0)):
+            rnd = rnd_data.get("round_num", 0)
+            triples_count = rnd_data.get("triples_added", 0)
+            votes = rnd_data.get("votes_cast", 0)
+            curator = rnd_data.get("curator_actions", 0)
+            oracle = rnd_data.get("oracle_forecasts", 0)
+
+            lines.append(f"### Round {rnd}")
+            lines.append(f"- Phases executed: Research → Contribute → Vote → Curate"
+                         + (" → Oracle" if oracle > 0 else ""))
+            lines.append(f"- Triples added: {triples_count}")
+            lines.append(f"- Votes cast: {votes}")
+            if curator > 0:
+                lines.append(f"- Curator actions: {curator}")
+            if oracle > 0:
+                lines.append(f"- Oracle forecasts: {oracle}")
+
+            # Show triples added this round
+            rnd_triples = triples_by_round.get(rnd, [])
+            if rnd_triples:
+                lines.append(f"- Knowledge added:")
+                for t in rnd_triples[:5]:
+                    subj = t.get("subject", "?")
+                    rel = t.get("relationship", "?")
+                    obj = t.get("object", "?")
+                    agent = t.get("added_by_agent", "?")
+                    lines.append(f'  - ({subj}) —[{rel}]-> ({obj}) by {agent}')
+
+            lines.append("")
+
+        total_triples = sum(r.get("triples_added", 0) for r in results)
+        total_votes = sum(r.get("votes_cast", 0) for r in results)
+        lines.append(f"**Total: {len(results)} rounds, {total_triples} triples, {total_votes} votes**")
+
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_triples(triples_by_round: dict) -> str:
+        """Format detailed triple data grouped by round."""
+        lines = ["## MiroClaw Knowledge Graph Triples", ""]
+
+        if not triples_by_round:
+            return "No agent-added triples found in the knowledge graph."
+
+        total = 0
+        for rnd in sorted(triples_by_round.keys()):
+            triples = triples_by_round[rnd]
+            total += len(triples)
+            lines.append(f"### Round {rnd} ({len(triples)} triples)")
+            for t in triples:
+                subj = t.get("subject", "?")
+                rel = t.get("relationship", "?")
+                obj = t.get("object", "?")
+                agent = t.get("added_by_agent", "?")
+                status = t.get("status", "pending")
+                upvotes = t.get("upvotes", 0)
+                downvotes = t.get("downvotes", 0)
+                src = t.get("source_url", "")
+                lines.append(f'- ({subj}) —[{rel}]-> ({obj})')
+                lines.append(f'  Agent: {agent} | Status: {status} | Votes: ↑{upvotes} ↓{downvotes}')
+                if src:
+                    lines.append(f'  Source: {src}')
+            lines.append("")
+
+        lines.append(f"**Total: {total} triples across {len(triples_by_round)} rounds**")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_agent_contributions(triples_by_round: dict) -> str:
+        """Format per-agent contribution breakdown."""
+        lines = ["## MiroClaw Agent Contributions", ""]
+
+        if not triples_by_round:
+            return "No agent contribution data found."
+
+        # Group by agent
+        agent_data = {}
+        for rnd, triples in triples_by_round.items():
+            for t in triples:
+                agent = t.get("added_by_agent", "unknown")
+                if agent not in agent_data:
+                    agent_data[agent] = {"total": 0, "rounds": {}, "topics": set()}
+                agent_data[agent]["total"] += 1
+                agent_data[agent]["rounds"][rnd] = agent_data[agent]["rounds"].get(rnd, 0) + 1
+                agent_data[agent]["topics"].add(t.get("subject", ""))
+
+        for agent in sorted(agent_data.keys()):
+            data = agent_data[agent]
+            lines.append(f"### {agent}")
+            lines.append(f"- Total triples contributed: {data['total']}")
+            rounds_str = ", ".join(f"R{r}({c})" for r, c in sorted(data["rounds"].items()))
+            lines.append(f"- Active rounds: {rounds_str}")
+            topics = [t for t in data["topics"] if t][:5]
+            if topics:
+                lines.append(f"- Topics explored: {', '.join(topics)}")
+            lines.append("")
+
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_voting_patterns(triples_by_round: dict, results: list) -> str:
+        """Format voting pattern analysis."""
+        lines = ["## MiroClaw Voting Patterns", ""]
+
+        if not triples_by_round:
+            return "No voting data found."
+
+        total_upvotes = 0
+        total_downvotes = 0
+        contested = []
+        for rnd, triples in sorted(triples_by_round.items()):
+            for t in triples:
+                up = t.get("upvotes", 0)
+                down = t.get("downvotes", 0)
+                total_upvotes += up
+                total_downvotes += down
+                status = t.get("status", "pending")
+                if status == "contested":
+                    contested.append(t)
+
+            if any(t.get("upvotes", 0) > 0 or t.get("downvotes", 0) > 0 for t in triples):
+                lines.append(f"### Round {rnd}")
+                for t in triples:
+                    up = t.get("upvotes", 0)
+                    down = t.get("downvotes", 0)
+                    if up > 0 or down > 0:
+                        lines.append(
+                            f'- ({t.get("subject","?")}) —[{t.get("relationship","?")}]-> '
+                            f'({t.get("object","?")}) — ↑{up} ↓{down} [{t.get("status","pending")}]'
+                        )
+                lines.append("")
+
+        lines.append(f"**Total: {total_upvotes} upvotes, {total_downvotes} downvotes, "
+                      f"{len(contested)} contested triples**")
+        return "\n".join(lines)
+
     # Set of valid tool names, used for validation during bare JSON fallback parsing
     VALID_TOOL_NAMES = {
         "insight_forge", "panorama_search", "quick_search", "interview_agents",
-        "simulation_posts", "simulation_debates", "simulation_content_analysis", "simulation_timeline"
+        "simulation_posts", "simulation_debates", "simulation_content_analysis", "simulation_timeline",
+        "miroclaw_phase_analysis"
     }
 
     def _parse_tool_calls(self, response: str) -> List[Dict[str, Any]]:
@@ -1333,6 +1568,32 @@ class ReportAgent:
         if progress_callback:
             progress_callback("planning", 30, "Generating report outline...")
 
+        # Detect MiroClaw phased simulation data
+        miroclaw_context = ""
+        miroclaw_results_path = os.path.join(
+            Config.UPLOAD_FOLDER, 'simulations', self.simulation_id, 'miroclaw_results.json'
+        )
+        if os.path.exists(miroclaw_results_path):
+            try:
+                with open(miroclaw_results_path, 'r', encoding='utf-8') as f:
+                    mc_results = json.load(f)
+                total_triples = sum(r.get("triples_added", 0) for r in mc_results)
+                total_votes = sum(r.get("votes_cast", 0) for r in mc_results)
+                miroclaw_context = (
+                    f"\n\n【MiroClaw Phased Simulation Data】\n"
+                    f"This IS a phased MiroClaw simulation with {len(mc_results)} rounds.\n"
+                    f"Each round follows: Research → Contribute → Vote → Curate → Oracle phases.\n"
+                    f"Total triples added to knowledge graph: {total_triples}\n"
+                    f"Total votes cast: {total_votes}\n"
+                    f"Round-by-round breakdown: {json.dumps(mc_results, ensure_ascii=False)}\n"
+                    f"\nYou MUST include sections covering:\n"
+                    f"1. How the simulation EVOLVED across rounds (what changed between early seed-based rounds and later research-enhanced rounds)\n"
+                    f"2. Knowledge Graph Growth (which triples were added, voting patterns, evidence accumulation)\n"
+                )
+                logger.info(f"Detected MiroClaw phased data: {len(mc_results)} rounds, {total_triples} triples")
+            except Exception as e:
+                logger.warning(f"Failed to read miroclaw_results.json: {e}")
+
         system_prompt = PLAN_SYSTEM_PROMPT
         user_prompt = PLAN_USER_PROMPT_TEMPLATE.format(
             simulation_requirement=self.simulation_requirement,
@@ -1342,6 +1603,19 @@ class ReportAgent:
             total_entities=context.get('total_entities', 0),
             related_facts_json=json.dumps(context.get('related_facts', [])[:10], ensure_ascii=False, indent=2),
         )
+
+        # For MiroClaw simulations, inject mandatory section requirements
+        if miroclaw_context:
+            user_prompt += miroclaw_context
+            user_prompt += (
+                "\n\n【MANDATORY SECTIONS for this MiroClaw simulation】\n"
+                "You MUST include these sections in your outline:\n"
+                "1. \"Simulation Overview\" — agents, roles, stances, simulation scale\n"
+                "2. \"Simulation Evolution\" — HOW the simulation progressed across rounds (seed-based vs research-enhanced)\n"
+                "3. \"Knowledge Graph Growth\" — which triples were added, evidence accumulation, voting patterns\n"
+                "4. One additional section for core predictive findings, trends, or risks\n"
+                "Total: 4 sections minimum. You may add a 5th if needed."
+            )
 
         try:
             response = self.llm.chat_json(
@@ -1368,6 +1642,9 @@ class ReportAgent:
                 summary=response.get("summary", ""),
                 sections=sections
             )
+
+            # If MiroClaw data exists, ensure the outline has the required sections
+            outline = self._ensure_miroclaw_sections(outline)
             
             if progress_callback:
                 progress_callback("planning", 100, "Outline planning completed")
@@ -1388,6 +1665,77 @@ class ReportAgent:
                 ]
             )
     
+    def _is_miroclaw_simulation(self) -> bool:
+        """Check if this simulation has MiroClaw phased data."""
+        miroclaw_results_path = os.path.join(
+            Config.UPLOAD_FOLDER, 'simulations', self.simulation_id, 'miroclaw_results.json'
+        )
+        return os.path.exists(miroclaw_results_path)
+
+    def _ensure_miroclaw_sections(self, outline: ReportOutline) -> ReportOutline:
+        """Ensure the outline includes MiroClaw-specific sections if this is a phased simulation.
+
+        Inserts 'Simulation Evolution' and 'Knowledge Graph Growth' sections
+        after the first 'Overview' section if they don't already exist.
+        """
+        if not self._is_miroclaw_simulation():
+            return outline
+
+        existing_titles_lower = {s.title.lower() for s in outline.sections}
+
+        # Check which MiroClaw sections already exist
+        has_evolution = any("evolution" in t or "progress" in t for t in existing_titles_lower)
+        has_kg_growth = any("knowledge graph" in t or "graph growth" in t or "triple" in t for t in existing_titles_lower)
+
+        sections_to_insert = []
+        if not has_evolution:
+            sections_to_insert.append(ReportSection(
+                title="Simulation Evolution Across Rounds",
+                content=""
+            ))
+        if not has_kg_growth:
+            sections_to_insert.append(ReportSection(
+                title="Knowledge Graph Growth and Evidence Accumulation",
+                content=""
+            ))
+
+        if not sections_to_insert:
+            return outline
+
+        # Insert after the first section (assumed to be Overview)
+        new_sections = [outline.sections[0]]
+        new_sections.extend(sections_to_insert)
+        new_sections.extend(outline.sections[1:])
+
+        # Cap at 5 sections max (remove last if needed)
+        if len(new_sections) > 5:
+            new_sections = new_sections[:5]
+
+        outline.sections = new_sections
+        logger.info(f"Inserted {len(sections_to_insert)} MiroClaw sections into outline")
+        return outline
+
+    def _get_miroclaw_section_hint(self, section_title: str) -> str:
+        """Return MiroClaw-specific guidance for sections about simulation evolution."""
+        if not self._is_miroclaw_simulation():
+            return ""
+
+        title_lower = section_title.lower()
+        evolution_keywords = ["evolution", "progress", "development", "growth", "round", "phase", "knowledge graph"]
+        if not any(kw in title_lower for kw in evolution_keywords):
+            return ""
+
+        return (
+            "【IMPORTANT: This is a MiroClaw phased simulation section】\n"
+            "This simulation ran in phased rounds (Research → Contribute → Vote → Curate → Oracle).\n"
+            "You MUST call miroclaw_phase_analysis to get the round-by-round data.\n"
+            "- First call miroclaw_phase_analysis with analysis_type=\"evolution\" to get the overall progression\n"
+            "- Then call miroclaw_phase_analysis with analysis_type=\"triples\" to get detailed triple data\n"
+            "- Optionally call miroclaw_phase_analysis with analysis_type=\"agent_contributions\" for per-agent breakdowns\n"
+            "Describe HOW the simulation changed across rounds: what agents researched differently, how the knowledge graph grew, "
+            "what was discovered in early vs. later rounds."
+        )
+
     def _generate_section_react(
         self, 
         section: ReportSection,
@@ -1446,6 +1794,11 @@ class ReportAgent:
             section_title=section.title,
         )
 
+        # Add MiroClaw-specific guidance if this is a phased simulation
+        miroclaw_hint = self._get_miroclaw_section_hint(section.title)
+        if miroclaw_hint:
+            user_prompt += "\n\n" + miroclaw_hint
+
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
@@ -1459,7 +1812,8 @@ class ReportAgent:
         used_tools = set()  # Record tool names that have already been used
         all_tools = {
             "insight_forge", "panorama_search", "quick_search", "interview_agents",
-            "simulation_posts", "simulation_debates", "simulation_content_analysis", "simulation_timeline"
+            "simulation_posts", "simulation_debates", "simulation_content_analysis", "simulation_timeline",
+            "miroclaw_phase_analysis"
         }
 
         # Report context, used for InsightForge sub-question generation
