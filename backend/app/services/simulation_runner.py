@@ -1511,6 +1511,38 @@ class SimulationRunner:
                         f, ensure_ascii=False, indent=2,
                     )
 
+                # Persist agent position drift data
+                drift_data = []
+                for agent in agents:
+                    if hasattr(agent, 'identity'):
+                        identity = agent.identity
+                        drift_data.append({
+                            "agent_id": agent.agent_id,
+                            "entity_name": identity.entity_name,
+                            "entity_type": identity.entity_type,
+                            "stance": identity.stance.value,
+                            "epistemic_flexibility": identity.epistemic_flexibility,
+                            "changelog": identity.changelog,
+                        })
+                if drift_data:
+                    drift_path = os.path.join(sim_dir, "position_drift.json")
+                    with open(drift_path, "w", encoding="utf-8") as f:
+                        json.dump(drift_data, f, ensure_ascii=False, indent=2)
+
+                # Persist oracle forecast data from round results
+                oracle_forecasts = []
+                for r in results:
+                    phase_data = r.phase_results.get("oracle")
+                    if phase_data:
+                        if isinstance(phase_data, list):
+                            oracle_forecasts.extend(phase_data)
+                        elif isinstance(phase_data, dict):
+                            oracle_forecasts.append(phase_data)
+                if oracle_forecasts:
+                    oracle_path = os.path.join(sim_dir, "oracle_forecasts.json")
+                    with open(oracle_path, "w", encoding="utf-8") as f:
+                        json.dump(oracle_forecasts, f, ensure_ascii=False, indent=2)
+
             except Exception as e:
                 logger.error(f"MiroClaw simulation failed: {simulation_id}, {e}")
                 state.runner_status = RunnerStatus.FAILED

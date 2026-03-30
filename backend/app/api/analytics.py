@@ -190,13 +190,20 @@ def get_position_drift():
         return err
 
     try:
-        # Position drift requires live agent instances or serialised data
-        # Check for serialised drift data in project
-        if hasattr(project, 'position_drift_data'):
-            return jsonify({"success": True, "data": project.position_drift_data})
+        # Try loading persisted drift data from simulation directory
+        simulation_id = request.args.get("simulation_id")
+        if simulation_id:
+            from ..config import Config
+            sim_dir = os.path.join(
+                Config.UPLOAD_FOLDER, 'simulations', simulation_id
+            )
+            drift_path = os.path.join(sim_dir, "position_drift.json")
+            if os.path.exists(drift_path):
+                with open(drift_path, 'r', encoding='utf-8') as f:
+                    return jsonify({"success": True, "data": json.load(f)})
 
-        # Fallback: try to reconstruct from graph state
-        graph_api = _resolve_graph_write_api(project)
+        # Fallback: try graph-based reconstruction
+        graph_api = _resolve_graph_write_api()
         if not graph_api:
             return jsonify({"success": False, "error": "Graph service unavailable"}), 503
 
@@ -221,13 +228,26 @@ def get_oracle_time_series():
         return err
 
     try:
-        # Oracle time series requires serialised forecast history
-        if hasattr(project, 'oracle_time_series_data'):
-            return jsonify({"success": True, "data": project.oracle_time_series_data})
+        # Try loading persisted oracle data from simulation directory
+        simulation_id = request.args.get("simulation_id")
+        if simulation_id:
+            from ..config import Config
+            sim_dir = os.path.join(
+                Config.UPLOAD_FOLDER, 'simulations', simulation_id
+            )
+            oracle_path = os.path.join(sim_dir, "oracle_forecasts.json")
+            if os.path.exists(oracle_path):
+                with open(oracle_path, 'r', encoding='utf-8') as f:
+                    return jsonify({"success": True, "data": json.load(f)})
 
-        analytics = MiroClawAnalytics()
-        result = analytics.generate_oracle_time_series(oracle_agents=[])
-        return jsonify({"success": True, "data": result})
+        # Fallback: reconstruct from graph state
+        graph_api = _resolve_graph_write_api()
+        if graph_api:
+            analytics = MiroClawAnalytics(graph_service=graph_api)
+            result = analytics.generate_oracle_time_series(oracle_agents=[])
+            return jsonify({"success": True, "data": result})
+
+        return jsonify({"success": False, "error": "No oracle data available"}), 404
 
     except Exception as e:
         logger.error(f"Oracle time series error: {e}")
