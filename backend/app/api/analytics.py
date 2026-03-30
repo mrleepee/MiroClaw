@@ -28,16 +28,16 @@ from ..utils.logger import get_logger
 logger = get_logger('miroclaw.api.analytics')
 
 
-def _resolve_graph_write_api(project):
+def _resolve_graph_write_api(project=None):
     """Resolve the MiroClawGraphWriteAPI from the project's graph service."""
     try:
-        from ..services.local_graph import get_shared_graph_service
-        local_gs = get_shared_graph_service()
+        from ..services.graph_builder import get_graph_service
+        local_gs = get_graph_service()
         if local_gs:
             return MiroClawGraphWriteAPI(local_gs)
-    except ImportError:
+    except Exception:
         pass
-    if hasattr(project, '_graph_write_api'):
+    if project and hasattr(project, '_graph_write_api'):
         return project._graph_write_api
     return None
 
@@ -337,9 +337,7 @@ def get_simulation_evolution():
             results = json.load(f)
 
         # Load triples from Neo4j
-        graph_api = _resolve_graph_write_api(
-            type('P', (), {'_graph_write_api': None})()
-        )
+        graph_api = _resolve_graph_write_api()
         triples_by_round = {}
         if graph_api:
             try:
