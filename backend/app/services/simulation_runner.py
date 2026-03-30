@@ -1418,6 +1418,9 @@ class SimulationRunner:
                 persona=cfg["base_persona"],
                 epistemic_flexibility=cfg.get("epistemic_flexibility", 0.3),
                 stance=cfg.get("stance", "neutral"),
+                api_key=Config.LLM_API_KEY,
+                base_url=Config.LLM_BASE_URL,
+                model_name=Config.LLM_MODEL_NAME,
             )
             agents.append(agent)
 

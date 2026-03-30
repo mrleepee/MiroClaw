@@ -1480,6 +1480,7 @@ def start_simulation():
         max_rounds = data.get('max_rounds')  # 可选：最大模拟轮数
         enable_graph_memory_update = data.get('enable_graph_memory_update', False)  # 可选：是否启用图谱记忆更新
         force = data.get('force', False)  # 可选：强制重新开始
+        simulation_mode = data.get('simulation_mode', 'oasis')  # 'oasis' or 'miroclaw'
 
         # 验证 max_rounds 参数
         if max_rounds is not None:
@@ -1578,13 +1579,66 @@ def start_simulation():
             logger.info(f"启用图谱记忆更新: simulation_id={simulation_id}, graph_id={graph_id}")
         
         # 启动模拟
-        run_state = SimulationRunner.start_simulation(
-            simulation_id=simulation_id,
-            platform=platform,
-            max_rounds=max_rounds,
-            enable_graph_memory_update=enable_graph_memory_update,
-            graph_id=graph_id
-        )
+        if simulation_mode == 'miroclaw':
+            # MiroClaw phased simulation (CAMEL-native)
+            from ..services.simulation_manager import SimulationManager as SM
+            import random
+
+            sim_config = SM().get_simulation_config(simulation_id) or {}
+            oasis_configs = sim_config.get('agent_configs', [])
+
+            # Convert OASIS configs to MiroClaw format
+            agent_configs = []
+            for cfg in oasis_configs:
+                roll = random.random()
+                if roll < 0.20:
+                    flexibility = random.uniform(0.0, 0.15)
+                elif roll < 0.70:
+                    flexibility = random.uniform(0.15, 0.5)
+                elif roll < 0.95:
+                    flexibility = random.uniform(0.5, 0.85)
+                else:
+                    flexibility = random.uniform(0.85, 1.0)
+
+                agent_configs.append({
+                    'agent_id': f"agent_{cfg.get('agent_id', 0)}",
+                    'entity_name': cfg.get('entity_name', 'Unknown'),
+                    'entity_type': cfg.get('entity_type', 'Entity'),
+                    'base_persona': cfg.get('entity_name', 'Unknown'),  # enriched during sim
+                    'stance': cfg.get('stance', 'neutral'),
+                    'epistemic_flexibility': round(flexibility, 3),
+                    'source_entity_uuid': cfg.get('entity_uuid'),
+                })
+
+            # Resolve graph_id for MiroClaw (always needed for triples)
+            miroclaw_graph_id = graph_id or state.graph_id
+            if not miroclaw_graph_id:
+                project = ProjectManager.get_project(state.project_id)
+                if project:
+                    miroclaw_graph_id = project.graph_id
+
+            total_rounds = max_rounds or 10
+
+            logger.info(
+                f"Starting MiroClaw simulation: {len(agent_configs)} agents, "
+                f"{total_rounds} rounds, graph={miroclaw_graph_id}"
+            )
+
+            run_state = SimulationRunner.start_miroclaw_simulation(
+                simulation_id=simulation_id,
+                graph_id=miroclaw_graph_id or 'no_graph',
+                agent_configs=agent_configs,
+                total_rounds=total_rounds,
+            )
+        else:
+            # OASIS simulation (subprocess)
+            run_state = SimulationRunner.start_simulation(
+                simulation_id=simulation_id,
+                platform=platform,
+                max_rounds=max_rounds,
+                enable_graph_memory_update=enable_graph_memory_update,
+                graph_id=graph_id
+            )
         
         # 更新模拟状态
         state.status = SimulationStatus.RUNNING
@@ -1595,6 +1649,7 @@ def start_simulation():
             response_data['max_rounds_applied'] = max_rounds
         response_data['graph_memory_update_enabled'] = enable_graph_memory_update
         response_data['force_restarted'] = force_restarted
+        response_data['simulation_mode'] = simulation_mode
         if enable_graph_memory_update:
             response_data['graph_id'] = graph_id
         

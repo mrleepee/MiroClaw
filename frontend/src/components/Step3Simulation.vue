@@ -514,7 +514,8 @@ const doStartSimulation = async () => {
       simulation_id: props.simulationId,
       platform: 'parallel',
       force: true,  // Force restart
-      enable_graph_memory_update: true  // Enable dynamic graph update
+      enable_graph_memory_update: true,  // Enable dynamic graph update
+      simulation_mode: 'miroclaw'  // Use MiroClaw phased rounds
     }
 
     if (props.maxRounds) {
