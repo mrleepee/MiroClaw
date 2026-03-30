@@ -1469,6 +1469,8 @@ class SimulationRunner:
         config = SimulationConfig(
             total_rounds=total_rounds,
             oracle_forecast_interval=oracle_forecast_interval,
+            graph_service=graph_service,
+            graph_id=graph_id,
         )
 
         orchestrator = RoundOrchestrator(agents=agents, config=config)

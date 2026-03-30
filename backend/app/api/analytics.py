@@ -8,10 +8,14 @@ Post-simulation analytics endpoints for:
 - Vote distribution analysis
 - Position drift visualisation data
 - Oracle forecast time series
+- Round-by-round simulation evolution
+- MiroClaw phase details (Research, Contribute, Vote, Curate, Oracle)
 
 Satisfies: R14 (Post-simulation analytics), Phase 6 backend
 """
 
+import json
+import os
 import traceback
 
 from flask import request, jsonify
@@ -42,7 +46,7 @@ def _resolve_simulation_runner():
     """Resolve the SimulationRunner for action log queries."""
     try:
         from ..services.simulation_runner import SimulationRunner
-        return SimulationRunner()
+        return SimulationRunner
     except Exception:
         return None
 
@@ -252,5 +256,143 @@ def get_full_report():
 
     except Exception as e:
         logger.error(f"Full report error: {e}")
+        logger.debug(traceback.format_exc())
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ── Round Details (MiroClaw phased simulation) ────────────────
+
+
+@analytics_bp.route('/round-details', methods=['GET'])
+def get_round_details():
+    """Get round-by-round MiroClaw simulation details from miroclaw_results.json.
+
+    Returns per-round breakdown of triples added, votes cast, curator actions,
+    oracle forecasts, and the triples added during each round's contribute phase.
+
+    Query params:
+        simulation_id — Required. The simulation ID.
+    """
+    simulation_id = request.args.get("simulation_id")
+    if not simulation_id:
+        return jsonify({"success": False, "error": "simulation_id required"}), 400
+
+    try:
+        from ..config import Config
+        sim_dir = os.path.join(Config.UPLOAD_FOLDER, 'simulations', simulation_id)
+        results_path = os.path.join(sim_dir, "miroclaw_results.json")
+
+        if not os.path.exists(results_path):
+            return jsonify({
+                "success": False,
+                "error": "No MiroClaw results found for this simulation",
+            }), 404
+
+        with open(results_path, 'r', encoding='utf-8') as f:
+            results = json.load(f)
+
+        return jsonify({"success": True, "data": results})
+
+    except Exception as e:
+        logger.error(f"Round details error: {e}")
+        logger.debug(traceback.format_exc())
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ── Simulation Evolution ────────────────────────────────────────
+
+
+@analytics_bp.route('/simulation-evolution', methods=['GET'])
+def get_simulation_evolution():
+    """Get high-level MiroClaw simulation evolution summary.
+
+    Combines miroclaw_results.json with Neo4j triple data to show how
+    the simulation progressed across rounds.
+
+    Query params:
+        simulation_id — Required. The simulation ID.
+        project_id — Required. The project ID for graph access.
+    """
+    simulation_id = request.args.get("simulation_id")
+    project_id = request.args.get("project_id")
+    if not simulation_id or not project_id:
+        return jsonify({
+            "success": False,
+            "error": "simulation_id and project_id required",
+        }), 400
+
+    try:
+        from ..config import Config
+
+        # Load round results
+        sim_dir = os.path.join(Config.UPLOAD_FOLDER, 'simulations', simulation_id)
+        results_path = os.path.join(sim_dir, "miroclaw_results.json")
+        if not os.path.exists(results_path):
+            return jsonify({
+                "success": False,
+                "error": "No MiroClaw results found for this simulation",
+            }), 404
+
+        with open(results_path, 'r', encoding='utf-8') as f:
+            results = json.load(f)
+
+        # Load triples from Neo4j
+        graph_api = _resolve_graph_write_api(
+            type('P', (), {'_graph_write_api': None})()
+        )
+        triples_by_round = {}
+        if graph_api:
+            try:
+                all_triples = graph_api.get_agent_triples()
+                for t in all_triples:
+                    rnd = t.get("added_round", 0)
+                    if rnd not in triples_by_round:
+                        triples_by_round[rnd] = []
+                    triples_by_round[rnd].append(t)
+            except Exception as e:
+                logger.warning(f"Failed to query triples for evolution: {e}")
+
+        # Build evolution summary
+        evolution = {
+            "total_rounds": len(results),
+            "total_triples": sum(r.get("triples_added", 0) for r in results),
+            "total_votes": sum(r.get("votes_cast", 0) for r in results),
+            "total_curator_actions": sum(r.get("curator_actions", 0) for r in results),
+            "total_oracle_forecasts": sum(r.get("oracle_forecasts", 0) for r in results),
+            "rounds": [],
+        }
+
+        for rnd_data in sorted(results, key=lambda x: x.get("round_num", 0)):
+            rnd = rnd_data.get("round_num", 0)
+            round_entry = {
+                "round_num": rnd,
+                "triples_added": rnd_data.get("triples_added", 0),
+                "votes_cast": rnd_data.get("votes_cast", 0),
+                "curator_actions": rnd_data.get("curator_actions", 0),
+                "oracle_forecasts": rnd_data.get("oracle_forecasts", 0),
+                "phases_executed": ["research", "contribute", "vote", "curate"],
+                "triples": [],
+            }
+            if rnd_data.get("oracle_forecasts", 0) > 0:
+                round_entry["phases_executed"].append("oracle")
+
+            # Attach triples for this round
+            for t in triples_by_round.get(rnd, []):
+                round_entry["triples"].append({
+                    "subject": t.get("subject", ""),
+                    "relationship": t.get("relationship", ""),
+                    "object": t.get("object", ""),
+                    "added_by_agent": t.get("added_by_agent", ""),
+                    "status": t.get("status", "pending"),
+                    "upvotes": t.get("upvotes", 0),
+                    "downvotes": t.get("downvotes", 0),
+                })
+
+            evolution["rounds"].append(round_entry)
+
+        return jsonify({"success": True, "data": evolution})
+
+    except Exception as e:
+        logger.error(f"Simulation evolution error: {e}")
         logger.debug(traceback.format_exc())
         return jsonify({"success": False, "error": str(e)}), 500

@@ -45,6 +45,8 @@ class RoundResult:
     votes_cast: int = 0
     curator_actions: int = 0
     oracle_forecasts: int = 0
+    # Triples added this round (populated during contribute, used during vote)
+    round_triples: List[Dict[str, Any]] = field(default_factory=list)
     start_time: str = field(default_factory=lambda: datetime.now().isoformat())
     end_time: Optional[str] = None
 
@@ -55,6 +57,7 @@ class RoundResult:
             "votes_cast": self.votes_cast,
             "curator_actions": self.curator_actions,
             "oracle_forecasts": self.oracle_forecasts,
+            "round_triples": self.round_triples,
             "start_time": self.start_time,
             "end_time": self.end_time,
         }
@@ -67,6 +70,9 @@ class SimulationConfig:
     oracle_forecast_interval: int = 5  # Oracle forecasts every N rounds
     curator_agent: Optional[MiroClawAgent] = None
     oracle_agents: List[MiroClawAgent] = field(default_factory=list)
+    # Graph access for querying triples during vote/curate phases
+    graph_service: Optional[Any] = None
+    graph_id: Optional[str] = None
     # Callbacks for phase-specific logic
     on_research: Optional[Callable] = None
     on_contribute: Optional[Callable] = None
@@ -98,6 +104,8 @@ class RoundOrchestrator:
         self.current_round = 0
         self.current_phase: Optional[Phase] = None
         self.results: List[RoundResult] = []
+        # Triples added during the current round's contribute phase
+        self._pending_round_triples: List[Dict[str, Any]] = []
 
     async def run(self) -> List[RoundResult]:
         """Run the full simulation through all rounds."""
@@ -126,6 +134,7 @@ class RoundOrchestrator:
         """Execute a single round through all 5 phases in strict order."""
         self.current_round = round_num
         result = RoundResult(round_num=round_num)
+        self._pending_round_triples = []  # Reset for new round
 
         if self.config.on_round_start:
             self.config.on_round_start(round_num)
@@ -135,6 +144,8 @@ class RoundOrchestrator:
 
         # Phase 2: Contribute (parallel, per-agent)
         await self._execute_phase(Phase.CONTRIBUTE, round_num, result)
+        # Copy triples added during contribute to result for vote phase
+        result.round_triples = list(self._pending_round_triples)
 
         # Phase 3: Vote (parallel, per-agent)
         await self._execute_phase(Phase.VOTE, round_num, result)
@@ -142,8 +153,11 @@ class RoundOrchestrator:
         # Phase 4: Curate (single curator agent)
         await self._execute_phase(Phase.CURATE, round_num, result)
 
-        # Phase 5: Oracle Forecast (every N rounds, oracle agents only)
-        if round_num % self.config.oracle_forecast_interval == 0:
+        # Phase 5: Oracle Forecast (every N rounds AND on the last round)
+        if (
+            round_num % self.config.oracle_forecast_interval == 0
+            or round_num == self.config.total_rounds
+        ):
             await self._execute_phase(Phase.ORACLE, round_num, result)
 
         # Check memory compaction for all agents
@@ -219,9 +233,20 @@ class RoundOrchestrator:
     def _get_agents_for_phase(self, phase: Phase) -> List[MiroClawAgent]:
         """Get the agents that participate in a given phase."""
         if phase == Phase.CURATE:
-            return [self.config.curator_agent] if self.config.curator_agent else []
+            if self.config.curator_agent:
+                return [self.config.curator_agent]
+            # Fallback: use the first agent as curator
+            if self.agents:
+                return [self.agents[0]]
+            return []
         elif phase == Phase.ORACLE:
-            return self.config.oracle_agents
+            if self.config.oracle_agents:
+                return self.config.oracle_agents
+            # Fallback: all non-curator agents participate as oracles
+            return [
+                a for a in self.agents
+                if not a.is_curator
+            ]
         else:
             # All non-special agents participate in Research, Contribute, Vote
             return [
@@ -242,13 +267,20 @@ class RoundOrchestrator:
         we ask the LLM to output structured JSON actions, then parse and
         execute them directly against the tool instances.
         """
-        phase_prompt = self._build_action_prompt(phase, round_num)
+        # Build phase prompt — inject triple list for vote phase
+        if phase == Phase.VOTE:
+            phase_prompt = self._build_vote_prompt(round_num, result)
+        else:
+            phase_prompt = self._build_action_prompt(phase, round_num)
 
         phase_triples = 0
         phase_votes = 0
+        phase_curator_actions = 0
+        phase_oracle_forecasts = 0
 
         async def agent_step(agent: MiroClawAgent):
             nonlocal phase_triples, phase_votes
+            nonlocal phase_curator_actions, phase_oracle_forecasts
             try:
                 msg = BaseMessage.make_user_message(
                     role_name="system",
@@ -276,6 +308,10 @@ class RoundOrchestrator:
                             phase_triples += executed
                         elif phase == Phase.VOTE:
                             phase_votes += executed
+                        elif phase == Phase.CURATE:
+                            phase_curator_actions += executed
+                        elif phase == Phase.ORACLE:
+                            phase_oracle_forecasts += executed
 
                 logger.info(
                     f"Agent {agent.agent_id} completed {phase.value} phase "
@@ -298,6 +334,10 @@ class RoundOrchestrator:
                 result.triples_added += phase_triples
             elif phase == Phase.VOTE:
                 result.votes_cast += phase_votes
+            elif phase == Phase.CURATE:
+                result.curator_actions += phase_curator_actions
+            elif phase == Phase.ORACLE:
+                result.oracle_forecasts += phase_oracle_forecasts
 
     def _parse_and_execute_actions(
         self,
@@ -417,7 +457,7 @@ class RoundOrchestrator:
         elif phase == Phase.CONTRIBUTE:
             if tool_name_lower in ("add_triple", "contribute_triple"):
                 if agent._graph_write_tool:
-                    return agent._graph_write_tool.add_triple(
+                    result = agent._graph_write_tool.add_triple(
                         subject=params.get("subject", ""),
                         subject_type=params.get("subject_type", ""),
                         relationship=params.get("relationship", ""),
@@ -427,6 +467,16 @@ class RoundOrchestrator:
                         added_by_agent=agent.agent_id,
                         added_round=round_num,
                     )
+                    # Track the triple for the vote phase
+                    if result and result.get("success") and result.get("triple_uuid"):
+                        self._pending_round_triples.append({
+                            "uuid": result["triple_uuid"],
+                            "subject": result.get("subject", ""),
+                            "relationship": result.get("relationship", ""),
+                            "object": result.get("object", ""),
+                            "added_by_agent": agent.agent_id,
+                        })
+                    return result
 
         # Vote phase tools
         elif phase == Phase.VOTE:
@@ -444,6 +494,35 @@ class RoundOrchestrator:
                         triple_uuid=params.get("triple_uuid", ""),
                         round_num=round_num,
                     )
+
+        # Curate phase tools
+        elif phase == Phase.CURATE:
+            if tool_name_lower in ("merge_triple", "merge"):
+                return self._curate_merge(
+                    agent, round_num,
+                    source_uuid=params.get("source_uuid", ""),
+                    target_uuid=params.get("target_uuid", ""),
+                )
+            elif tool_name_lower in ("prune_triple", "prune"):
+                return self._curate_prune(
+                    agent, round_num,
+                    triple_uuid=params.get("triple_uuid", ""),
+                )
+            elif tool_name_lower in ("flag_contested", "flag"):
+                return self._curate_flag(
+                    agent, round_num,
+                    triple_uuid=params.get("triple_uuid", ""),
+                )
+
+        # Oracle phase tools
+        elif phase == Phase.ORACLE:
+            if tool_name_lower in ("forecast", "oracle_forecast"):
+                return self._oracle_forecast(
+                    agent, round_num,
+                    question=params.get("question", ""),
+                    probability=params.get("probability", 0.5),
+                    reasoning=params.get("reasoning", ""),
+                )
 
         return None
 
@@ -555,11 +634,182 @@ class RoundOrchestrator:
                 '- `downvote` — params: {"triple_uuid": string}\n'
             ),
             Phase.CURATE: (
-                '\n\nOutput your curation decisions as JSON.'
+                '\n\n## Response Format\n\n'
+                'Review the triples and output your curation decisions as JSON:\n'
+                '```json\n'
+                '[{"tool": "prune", "params": {"triple_uuid": "..."}},\n'
+                ' {"tool": "merge", "params": {"source_uuid": "...", "target_uuid": "..."}},\n'
+                ' {"tool": "flag", "params": {"triple_uuid": "..."}}]\n'
+                '```\n\n'
+                'Available tools:\n'
+                '- `merge` — params: {"source_uuid": string, "target_uuid": string}\n'
+                '- `prune` — params: {"triple_uuid": string}\n'
+                '- `flag` — params: {"triple_uuid": string} (flag as contested)\n'
             ),
             Phase.ORACLE: (
-                '\n\nOutput your forecasts as JSON.'
+                '\n\n## Response Format\n\n'
+                'Output your calibrated forecasts as JSON:\n'
+                '```json\n'
+                '[{"tool": "oracle_forecast", "params": {\n'
+                '  "question": "Will X happen by Y?",\n'
+                '  "probability": 0.65,\n'
+                '  "reasoning": "Based on evidence..."\n'
+                '}}]\n'
+                '```\n\n'
+                'You MUST output at least one forecast. Probability must be between 0.0 and 1.0.\n'
             ),
         }
 
         return base_prompt + action_instructions.get(phase, "")
+
+    def _build_vote_prompt(
+        self,
+        round_num: int,
+        result: Optional[RoundResult] = None,
+    ) -> str:
+        """Build the vote phase prompt with the list of votable triples.
+
+        Includes triple UUIDs so agents can reference them in upvote/downvote
+        actions.
+        """
+        base = (
+            f"Round {round_num} — VOTE PHASE\n\n"
+            "You are now in the Vote phase. Review the new triples added by "
+            "agents this round and vote on them.\n\n"
+            "Vote based on whether the evidence supports or contradicts "
+            "your explanatory framework. Each triple can receive one vote "
+            "from you per round.\n\n"
+            "**Do NOT vote on your own triples.**\n\n"
+        )
+
+        # List the triples from this round
+        triples = self._pending_round_triples
+        if triples:
+            base += "## New Triples This Round\n\n"
+            for i, t in enumerate(triples, 1):
+                base += (
+                    f"{i}. `UUID: {t['uuid']}`\n"
+                    f"   ({t['subject']}) —[{t['relationship']}]-> ({t['object']})\n"
+                    f"   Added by: {t['added_by_agent']}\n\n"
+                )
+        else:
+            base += (
+                "## No new triples this round\n\n"
+                "No triples were added during the contribute phase. "
+                "Output an empty vote action or skip voting.\n"
+            )
+
+        base += (
+            '\n## Response Format\n\n'
+            'Respond with your reasoning about each triple, then output JSON action(s):\n'
+            '```json\n'
+            '[{"tool": "upvote", "params": {"triple_uuid": "UUID_HERE"}},\n'
+            ' {"tool": "downvote", "params": {"triple_uuid": "UUID_HERE"}}]\n'
+            '```\n\n'
+            'Available tools:\n'
+            '- `upvote` — params: {"triple_uuid": string}\n'
+            '- `downvote` — params: {"triple_uuid": string}\n'
+        )
+
+        return base
+
+    # ── Curate helpers ────────────────────────────────────────────
+
+    def _curate_merge(
+        self,
+        agent: MiroClawAgent,
+        round_num: int,
+        source_uuid: str,
+        target_uuid: str,
+    ) -> Dict[str, Any]:
+        """Merge two similar triples."""
+        if not self.config.graph_service:
+            return {"success": False, "reason": "No graph service configured"}
+
+        from ..services.local_graph.graph_service import MiroClawGraphWriteAPI
+        api = MiroClawGraphWriteAPI(self.config.graph_service)
+
+        source = api.get_triple(source_uuid)
+        target = api.get_triple(target_uuid)
+        if not source or not target:
+            return {"success": False, "reason": "Triple not found"}
+
+        # Merge: update target's upvotes (sum), mark source as merged
+        api.update_triple_properties(source_uuid, {"status": "merged"})
+        total_upvotes = (source.get("upvotes") or 0) + (target.get("upvotes") or 0)
+        total_downvotes = (source.get("downvotes") or 0) + (target.get("downvotes") or 0)
+        api.update_triple_properties(target_uuid, {
+            "upvotes": total_upvotes,
+            "downvotes": total_downvotes,
+        })
+
+        logger.info(
+            f"Curator merged {source_uuid} into {target_uuid} (round {round_num})"
+        )
+        return {"success": True, "action": "merge"}
+
+    def _curate_prune(
+        self,
+        agent: MiroClawAgent,
+        round_num: int,
+        triple_uuid: str,
+    ) -> Dict[str, Any]:
+        """Prune a low-engagement triple."""
+        if not self.config.graph_service:
+            return {"success": False, "reason": "No graph service configured"}
+
+        from ..services.local_graph.graph_service import MiroClawGraphWriteAPI
+        api = MiroClawGraphWriteAPI(self.config.graph_service)
+
+        triple = api.get_triple(triple_uuid)
+        if not triple:
+            return {"success": False, "reason": "Triple not found"}
+
+        # Don't prune contested triples
+        if triple.get("status") == "contested":
+            return {"success": False, "reason": "Contested triple is protected"}
+
+        api.update_triple_status(triple_uuid, "pruned")
+        logger.info(f"Curator pruned {triple_uuid} (round {round_num})")
+        return {"success": True, "action": "prune"}
+
+    def _curate_flag(
+        self,
+        agent: MiroClawAgent,
+        round_num: int,
+        triple_uuid: str,
+    ) -> Dict[str, Any]:
+        """Flag a triple as contested."""
+        if not self.config.graph_service:
+            return {"success": False, "reason": "No graph service configured"}
+
+        from ..services.local_graph.graph_service import MiroClawGraphWriteAPI
+        api = MiroClawGraphWriteAPI(self.config.graph_service)
+        api.update_triple_status(triple_uuid, "contested")
+        logger.info(f"Curator flagged {triple_uuid} as contested (round {round_num})")
+        return {"success": True, "action": "flag_contested"}
+
+    # ── Oracle helpers ────────────────────────────────────────────
+
+    def _oracle_forecast(
+        self,
+        agent: MiroClawAgent,
+        round_num: int,
+        question: str,
+        probability: float,
+        reasoning: str,
+    ) -> Dict[str, Any]:
+        """Record an oracle forecast from an agent."""
+        logger.info(
+            f"Oracle forecast from {agent.agent_id} (round {round_num}): "
+            f"P={probability:.2f} for '{question[:80]}...'"
+        )
+        return {
+            "success": True,
+            "action": "oracle_forecast",
+            "agent_id": agent.agent_id,
+            "round": round_num,
+            "question": question,
+            "probability": probability,
+            "reasoning": reasoning,
+        }

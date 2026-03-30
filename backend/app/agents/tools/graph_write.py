@@ -316,7 +316,7 @@ class GraphWriteTool:
 
         # Write to graph via the MiroClaw write API
         try:
-            self._write_api.write_triple(
+            triple_uuid = self._write_api.write_triple(
                 subject=triple.subject,
                 subject_type=triple.subject_type,
                 relationship=triple.relationship,
@@ -334,9 +334,16 @@ class GraphWriteTool:
             )
             logger.info(
                 f"Triple added: ({triple.subject}) —[{triple.relationship}]-> ({triple.object}) "
-                f"(agent={added_by_agent}, round={added_round})"
+                f"(agent={added_by_agent}, round={added_round}, uuid={triple_uuid})"
             )
-            return {"success": True, "validation": validation.to_dict()}
+            return {
+                "success": True,
+                "triple_uuid": triple_uuid,
+                "subject": triple.subject,
+                "relationship": triple.relationship,
+                "object": triple.object,
+                "validation": validation.to_dict(),
+            }
 
         except Exception as e:
             logger.error(f"Failed to write triple: {e}")
