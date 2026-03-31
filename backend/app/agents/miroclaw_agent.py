@@ -275,14 +275,14 @@ class MiroClawAgent(ChatAgent):
 
         # Curate phase: merge, prune, flag, ceiling (only for curator agents)
         # Non-curator agents get empty curate tools — curator runs separately
-        if hasattr(self, '_is_curator') and self._is_curator:
+        if self.is_curator:
             self._phase_tools[Phase.CURATE] = create_curate_tools(
                 curator_agent=self,
                 round_num=self.current_round,
             )
 
         # Oracle phase: consult_oracle (reuse research oracle tool)
-        if oracle_tool and hasattr(self, '_is_oracle') and self._is_oracle:
+        if oracle_tool and self.is_oracle:
             self._phase_tools[Phase.ORACLE] = create_research_tools(
                 research_tool=research_tool,
                 agent_id=self.agent_id,
@@ -313,18 +313,24 @@ class MiroClawAgent(ChatAgent):
         self,
         contradicting_evidence: str,
         round_num: int,
+        direction: str = "supportive",
     ) -> bool:
         """Roll against epistemic flexibility when encountering contradicting evidence.
 
         If successful, agent's stance shifts one step in the direction of the evidence.
         If failed, agent acknowledges evidence internally but maintains public stance.
 
+        Args:
+            contradicting_evidence: Description of the contradicting evidence.
+            round_num: Current round number.
+            direction: "supportive" to shift toward SUPPORTIVE, "opposing" to shift toward OPPOSING.
+
         Returns True if stance shifted.
         """
         roll = random.random()
         if roll < self.identity.epistemic_flexibility:
             old_stance = self.identity.stance
-            new_stance = self._shift_stance_one_step(old_stance)
+            new_stance = self._shift_stance_one_step(old_stance, direction)
             if new_stance != old_stance:
                 self.identity.record_stance_shift(
                     round_num=round_num,
@@ -341,14 +347,14 @@ class MiroClawAgent(ChatAgent):
         return False
 
     @staticmethod
-    def _shift_stance_one_step(current: Stance) -> Stance:
-        """Shift stance one step. Gradual, never jumps (e.g., supportive -> opposing)."""
-        if current == Stance.SUPPORTIVE:
-            return Stance.NEUTRAL
-        elif current == Stance.OPPOSING:
-            return Stance.NEUTRAL
-        else:  # NEUTRAL — no further shift possible without evidence direction
-            return Stance.NEUTRAL
+    def _shift_stance_one_step(current: Stance, direction: str = "supportive") -> Stance:
+        """Shift stance one step in the given direction. Gradual, never jumps."""
+        if current == Stance.NEUTRAL:
+            return Stance.SUPPORTIVE if direction == "supportive" else Stance.OPPOSING
+        elif current == Stance.SUPPORTIVE:
+            return Stance.NEUTRAL  # Can only go toward neutral
+        else:  # OPPOSING
+            return Stance.NEUTRAL  # Can only go toward neutral
 
     def set_oasis_platform(self, platform, user_id: int):
         """Set the OASIS social platform reference for posting."""

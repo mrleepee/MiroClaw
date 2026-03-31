@@ -53,6 +53,7 @@ class RoundResult:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "round_num": self.round_num,
+            "phase_results": self.phase_results,
             "triples_added": self.triples_added,
             "votes_cast": self.votes_cast,
             "curator_actions": self.curator_actions,
@@ -277,10 +278,11 @@ class RoundOrchestrator:
         phase_votes = 0
         phase_curator_actions = 0
         phase_oracle_forecasts = 0
+        oracle_forecast_records: List[Dict[str, Any]] = []
 
         async def agent_step(agent: MiroClawAgent):
             nonlocal phase_triples, phase_votes
-            nonlocal phase_curator_actions, phase_oracle_forecasts
+            nonlocal phase_curator_actions, phase_oracle_forecasts, oracle_forecast_records
             try:
                 # Swap the agent's active tools for this phase
                 agent._swap_active_tools(phase)
@@ -298,7 +300,7 @@ class RoundOrchestrator:
                 # Parse and execute text actions from the response
                 if response and hasattr(response, 'msgs') and response.msgs:
                     content = str(response.msgs[0].content) if response.msgs else ""
-                    executed = self._parse_and_execute_actions(
+                    executed, oracle_records = self._parse_and_execute_actions(
                         agent, phase, round_num, content
                     )
                     if executed:
@@ -315,6 +317,7 @@ class RoundOrchestrator:
                             phase_curator_actions += executed
                         elif phase == Phase.ORACLE:
                             phase_oracle_forecasts += executed
+                            oracle_forecast_records.extend(oracle_records)
 
                 logger.info(
                     f"Agent {agent.agent_id} completed {phase.value} phase "
@@ -341,6 +344,9 @@ class RoundOrchestrator:
                 result.curator_actions += phase_curator_actions
             elif phase == Phase.ORACLE:
                 result.oracle_forecasts += phase_oracle_forecasts
+                # Store oracle forecast records for persistence
+                if oracle_forecast_records:
+                    result.phase_results["oracle"] = oracle_forecast_records
 
     def _parse_and_execute_actions(
         self,
@@ -348,16 +354,18 @@ class RoundOrchestrator:
         phase: Phase,
         round_num: int,
         content: str,
-    ) -> int:
+    ) -> tuple[int, List[Dict[str, Any]]]:
         """Parse JSON actions from LLM text response and execute them.
 
-        Returns the number of actions successfully executed.
+        Returns a tuple of (number of actions successfully executed, oracle forecast records).
         """
         actions = self._extract_json_actions(content)
         executed = 0
+        oracle_forecasts: List[Dict[str, Any]] = []
 
         for action in actions:
             tool_name = action.get("tool", action.get("action", ""))
+            tool_name_lower = tool_name.lower().replace("-", "_").replace(" ", "_")
             params = action.get("params", action.get("parameters", {}))
 
             try:
@@ -370,12 +378,15 @@ class RoundOrchestrator:
                         f"Agent {agent.agent_id} action '{tool_name}' result: "
                         f"{str(result)[:100]}"
                     )
+                    # Capture oracle forecast records
+                    if phase == Phase.ORACLE and tool_name_lower in ("forecast", "oracle_forecast"):
+                        oracle_forecasts.append(result)
             except Exception as e:
                 logger.warning(
                     f"Agent {agent.agent_id} action '{tool_name}' failed: {e}"
                 )
 
-        return executed
+        return executed, oracle_forecasts
 
     @staticmethod
     def _extract_json_actions(text: str) -> List[Dict[str, Any]]:
@@ -485,18 +496,38 @@ class RoundOrchestrator:
         elif phase == Phase.VOTE:
             if tool_name_lower == "upvote":
                 if agent._voting_tool:
-                    return agent._voting_tool.upvote(
+                    result = agent._voting_tool.upvote(
                         agent_id=agent.agent_id,
                         triple_uuid=params.get("triple_uuid", ""),
                         round_num=round_num,
                     )
+                    # Trigger epistemic flexibility check on vote
+                    if result and result.get("success"):
+                        triple_uuid = params.get("triple_uuid", "")
+                        # Rolling for "supportive" direction when upvoting
+                        agent.roll_epistemic_flexibility(
+                            contradicting_evidence=f"Upvoted triple {triple_uuid}",
+                            round_num=round_num,
+                            direction="supportive",
+                        )
+                    return result
             elif tool_name_lower == "downvote":
                 if agent._voting_tool:
-                    return agent._voting_tool.downvote(
+                    result = agent._voting_tool.downvote(
                         agent_id=agent.agent_id,
                         triple_uuid=params.get("triple_uuid", ""),
                         round_num=round_num,
                     )
+                    # Trigger epistemic flexibility check on vote
+                    if result and result.get("success"):
+                        triple_uuid = params.get("triple_uuid", "")
+                        # Rolling for "opposing" direction when downvoting
+                        agent.roll_epistemic_flexibility(
+                            contradicting_evidence=f"Downvoted triple {triple_uuid}",
+                            round_num=round_num,
+                            direction="opposing",
+                        )
+                    return result
 
         # Curate phase tools
         elif phase == Phase.CURATE:

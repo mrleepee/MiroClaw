@@ -1502,6 +1502,36 @@ class SimulationRunner:
                 )
 
                 # Persist results alongside the simulation
+                # Also update project metadata so frontend shows proper titles
+                try:
+                    config_path = os.path.join(sim_dir, "simulation_config.json")
+                    if os.path.exists(config_path):
+                        with open(config_path, 'r', encoding='utf-8') as f:
+                            sim_config = json.load(f)
+                        project_id = sim_config.get("project_id")
+                        if project_id:
+                            from ..models import ProjectManager, ProjectStatus
+                            project = ProjectManager.get_project(project_id)
+                            if project:
+                                project.status = ProjectStatus.GRAPH_COMPLETED
+                                requirement = sim_config.get("simulation_requirement")
+                                if requirement:
+                                    project.simulation_requirement = requirement
+                                # Build a summary from results
+                                analysis_lines = [
+                                    f"MiroClaw simulation complete:",
+                                    f"- {total_rounds} rounds, {total_triples} triples added,",
+                                    f"  {total_votes} votes cast",
+                                    f"- {len(results)} round results recorded",
+                                ]
+                                project.analysis_summary = "\n".join(analysis_lines)
+                                ProjectManager.save_project(project)
+                                logger.info(
+                                    f"Updated project {project_id} metadata: "
+                                    f"status=graph_completed"
+                                )
+                except Exception as proj_err:
+                    logger.warning(f"Failed to update project metadata: {proj_err}")
                 sim_dir = os.path.join(cls.RUN_STATE_DIR, simulation_id)
                 os.makedirs(sim_dir, exist_ok=True)
                 results_path = os.path.join(sim_dir, "miroclaw_results.json")
