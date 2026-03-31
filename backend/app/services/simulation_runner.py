@@ -1520,7 +1520,7 @@ class SimulationRunner:
                             "agent_id": agent.agent_id,
                             "entity_name": identity.entity_name,
                             "entity_type": identity.entity_type,
-                            "stance": identity.stance.value,
+                            "stance": identity.stance.value if hasattr(identity.stance, 'value') else str(identity.stance),
                             "epistemic_flexibility": identity.epistemic_flexibility,
                             "changelog": identity.changelog,
                         })

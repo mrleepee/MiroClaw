@@ -282,6 +282,9 @@ class RoundOrchestrator:
             nonlocal phase_triples, phase_votes
             nonlocal phase_curator_actions, phase_oracle_forecasts
             try:
+                # Swap the agent's active tools for this phase
+                agent._swap_active_tools(phase)
+
                 msg = BaseMessage.make_user_message(
                     role_name="system",
                     content=phase_prompt,
