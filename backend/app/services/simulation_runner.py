@@ -1502,6 +1502,9 @@ class SimulationRunner:
                 )
 
                 # Persist results alongside the simulation
+                sim_dir = os.path.join(cls.RUN_STATE_DIR, simulation_id)
+                os.makedirs(sim_dir, exist_ok=True)
+
                 # Also update project metadata so frontend shows proper titles
                 try:
                     config_path = os.path.join(sim_dir, "simulation_config.json")
@@ -1532,8 +1535,7 @@ class SimulationRunner:
                                 )
                 except Exception as proj_err:
                     logger.warning(f"Failed to update project metadata: {proj_err}")
-                sim_dir = os.path.join(cls.RUN_STATE_DIR, simulation_id)
-                os.makedirs(sim_dir, exist_ok=True)
+
                 results_path = os.path.join(sim_dir, "miroclaw_results.json")
                 with open(results_path, "w", encoding="utf-8") as f:
                     json.dump(
