@@ -19,6 +19,7 @@ from enum import Enum
 from queue import Queue
 
 from ..config import Config
+from ..agents.miroclaw_agent import Stance
 from ..utils.logger import get_logger
 from .simulation_graph_updater import SimulationGraphManager
 from .simulation_ipc import SimulationIPCClient, CommandType, IPCResponse
@@ -1417,7 +1418,7 @@ class SimulationRunner:
                 entity_type=cfg["entity_type"],
                 persona=cfg["base_persona"],
                 epistemic_flexibility=cfg.get("epistemic_flexibility", 0.3),
-                stance=cfg.get("stance", "neutral"),
+                stance=Stance(cfg.get("stance", "neutral")),
                 api_key=Config.LLM_API_KEY,
                 base_url=Config.LLM_BASE_URL,
                 model_name=Config.LLM_MODEL_NAME,
