@@ -1449,6 +1449,7 @@ class SimulationRunner:
                         graph_service=graph_service,
                         skip_url_reachability=True,  # Skip HTTP checks for smoke test
                     ),
+                    graph_id=graph_id,
                 )
                 voting_tool = VotingTool(graph_service=graph_service)
             else:

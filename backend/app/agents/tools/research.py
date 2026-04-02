@@ -36,11 +36,13 @@ class ResearchTool:
         budget_tracker=None,
         browser_profile: Optional[str] = None,
         browser_client: Optional["CamofoxBrowserClient"] = None,
+        graph_id: str = None,
     ):
         self.agent_id = agent_id
         self.budget = budget_tracker
         self.browser_profile = browser_profile or f"miroclaw_{agent_id}"
         self.browser_client = browser_client
+        self.graph_id = graph_id
 
     def search(self, query: str) -> Dict[str, Any]:
         """Perform a web search via the agent's browser profile.
@@ -138,15 +140,15 @@ class ResearchTool:
             else:
                 api = MiroClawGraphWriteAPI(graph_service)
 
-            # Get recent triples and contested triples
-            recent = api.get_recent_triples(limit=20)
-            contested = api.get_triples_by_status("contested")
+            # Get recent triples and contested triples (scoped to this graph)
+            recent = api.get_recent_triples(limit=20, graph_id=self.graph_id)
+            contested = api.get_triples_by_status(status="contested", graph_id=self.graph_id)
 
             return {
                 "success": True,
                 "recent_triples": recent,
                 "contested_triples": contested,
-                "graph_stats": api.get_stats(),
+                "graph_stats": api.get_stats(graph_id=self.graph_id),
             }
         except Exception as e:
             logger.error(f"Graph state read failed: {e}")
