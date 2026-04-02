@@ -521,7 +521,7 @@ class MiroClawGraphWriteAPI:
         subject_labels_json = _json.dumps([subject_type])
         object_labels_json = _json.dumps([object_type])
 
-        # Build MERGE clause — use graph_id only when provided
+        # Build MERGE clause — always scope nodes by graph_id
         if graph_id:
             s_merge = "MERGE (s:Entity {name: $subject, graph_id: $graph_id})"
             o_merge = "MERGE (o:Entity {name: $object, graph_id: $graph_id})"
@@ -547,6 +547,7 @@ class MiroClawGraphWriteAPI:
             upvotes: $upvotes,
             downvotes: $downvotes,
             status: $status,
+            graph_id: $rel_graph_id,
             created_at: datetime()
         }}]->(o)
         RETURN r.uuid AS uuid
@@ -568,6 +569,7 @@ class MiroClawGraphWriteAPI:
             "upvotes": properties.get("upvotes", 0),
             "downvotes": properties.get("downvotes", 0),
             "status": properties.get("status", "pending"),
+            "rel_graph_id": graph_id or "",
         }
         if graph_id:
             params["graph_id"] = graph_id
@@ -587,7 +589,7 @@ class MiroClawGraphWriteAPI:
         WHERE r.added_by_agent IS NOT NULL
         """
         if graph_id:
-            query += " AND s.graph_id = $graph_id"
+            query += " AND s.graph_id = $graph_id AND o.graph_id = $graph_id"
         if filter_agent:
             query += " AND r.added_by_agent = $filter_agent"
 
@@ -617,7 +619,7 @@ class MiroClawGraphWriteAPI:
         WHERE r.added_by_agent IS NULL
         """
         if graph_id:
-            query += " AND s.graph_id = $graph_id"
+            query += " AND s.graph_id = $graph_id AND o.graph_id = $graph_id"
 
         query += """
         RETURN r.uuid AS uuid, s.name AS subject, r.name AS relationship,
@@ -638,7 +640,7 @@ class MiroClawGraphWriteAPI:
         WHERE r.status = $status
         """
         if graph_id:
-            query += " AND s.graph_id = $graph_id"
+            query += " AND s.graph_id = $graph_id AND o.graph_id = $graph_id"
 
         query += """
         RETURN r.uuid AS uuid, s.name AS subject, r.name AS relationship,
@@ -728,7 +730,7 @@ class MiroClawGraphWriteAPI:
         WHERE r.added_by_agent IS NOT NULL
         """
         if graph_id:
-            query += " AND s.graph_id = $graph_id"
+            query += " AND s.graph_id = $graph_id AND o.graph_id = $graph_id"
 
         query += """
         RETURN s.name AS subject, type(r) AS relationship, o.name AS object,
@@ -764,7 +766,7 @@ class MiroClawGraphWriteAPI:
         WHERE r.added_by_agent IS NOT NULL AND r.embedding IS NOT NULL
         """
         if graph_id:
-            query += " AND s.graph_id = $graph_id"
+            query += " AND s.graph_id = $graph_id AND o.graph_id = $graph_id"
 
         query += """
         RETURN s.name AS subject, type(r) AS relationship, o.name AS object,
@@ -820,7 +822,7 @@ class MiroClawGraphWriteAPI:
         WHERE r.added_by_agent IS NOT NULL
         """
         if graph_id:
-            query += " AND s.graph_id = $graph_id"
+            query += " AND s.graph_id = $graph_id AND o.graph_id = $graph_id"
 
         query += """
         RETURN count(r) AS total_agent_triples,

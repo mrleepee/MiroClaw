@@ -1287,7 +1287,7 @@ class ReportAgent:
             triples_by_round = {}
             if api:
                 try:
-                    all_triples = api.get_agent_triples()
+                    all_triples = api.get_agent_triples(graph_id=self.graph_id)
                     for t in all_triples:
                         rnd = t.get("added_round", 0)
                         if rnd not in triples_by_round:

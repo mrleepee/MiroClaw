@@ -258,6 +258,7 @@ class GraphWriteTool:
         self,
         graph_service,
         validator: TripleValidator,
+        graph_id: str = None,
     ):
         # Wrap with MiroClawGraphWriteAPI if raw LocalGraphService passed
         from ...services.local_graph.graph_service import MiroClawGraphWriteAPI
@@ -267,6 +268,7 @@ class GraphWriteTool:
             self._write_api = MiroClawGraphWriteAPI(graph_service)
         self.graph_service = graph_service
         self.validator = validator
+        self.graph_id = graph_id
 
     def add_triple(
         self,
@@ -331,6 +333,7 @@ class GraphWriteTool:
                     "downvotes": 0,
                     "status": "pending",
                 },
+                graph_id=self.graph_id,
             )
             logger.info(
                 f"Triple added: ({triple.subject}) —[{triple.relationship}]-> ({triple.object}) "
