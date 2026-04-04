@@ -1338,10 +1338,17 @@ class SimulationDBTools:
         for fc in forecasts:
             agent_id = fc.get('agent_id')
             if agent_id is not None:
-                try:
-                    aid = int(agent_id)
-                except (ValueError, TypeError):
-                    aid = 0
+                # Handle both "agent_0" string format and integer IDs
+                if isinstance(agent_id, str) and agent_id.startswith('agent_'):
+                    try:
+                        aid = int(agent_id.split('_')[1])
+                    except (ValueError, IndexError):
+                        aid = 0
+                else:
+                    try:
+                        aid = int(agent_id)
+                    except (ValueError, TypeError):
+                        aid = 0
                 info = self._get_agent_info(aid)
                 fc['entity_type'] = info.get('entity_type', 'Unknown')
                 fc['entity_name'] = info.get('name', f'Agent_{aid}')
@@ -1381,7 +1388,7 @@ class SimulationDBTools:
             low_conf = sum(1 for p in probs if p <= 0.3)
             mid_conf = len(probs) - high_conf - low_conf
             lines.append(f"\n**Probability distribution:**")
-            lines.append(f"  Average: {avg_prob:.2f}")
+            lines.append(f"  Average: {avg_prob:.0%}")
             lines.append(f"  High confidence (>70%): {high_conf}")
             lines.append(f"  Medium (30-70%): {mid_conf}")
             lines.append(f"  Low confidence (<30%): {low_conf}")

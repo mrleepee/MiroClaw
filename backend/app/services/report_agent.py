@@ -1883,7 +1883,7 @@ class ReportAgent:
                 ))
 
         # Calibrated Forecasts — only if oracle forecasts exist
-        has_forecasts = any("calibrated forecast" in t or "oracle forecast" in t or "probability forecast" in t for t in existing_titles_lower)
+        has_forecasts = any("forecast" in t or "calibrated" in t or "prediction" in t or "oracle" in t or "probability" in t for t in existing_titles_lower)
         if not has_forecasts and total_oracle > 0:
             sections_to_insert.append(ReportSection(
                 title="Calibrated Forecast Analysis",
