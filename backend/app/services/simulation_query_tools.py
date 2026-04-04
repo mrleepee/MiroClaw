@@ -1144,10 +1144,13 @@ class SimulationDBTools:
 
         # Apply optional filter
         if agent_type:
-            drift_data = [
+            filtered = [
                 a for a in drift_data
                 if a.get('entity_type', '').lower() == agent_type.lower()
             ]
+            if not filtered:
+                return f"No agents found with entity type '{agent_type}' in position drift data."
+            drift_data = filtered
 
         total_agents = len(drift_data)
         agents_with_shifts = [a for a in drift_data if a.get('changelog')]
@@ -1252,7 +1255,10 @@ class SimulationDBTools:
                     'evidence': entry.get('evidence', ''),
                 })
 
-        for rnd in sorted(round_shifts.keys())[:limit]:
+        # Sort by number of shifts (most active rounds first), then by round number
+        sorted_rounds = sorted(round_shifts.keys(),
+                               key=lambda r: (-len(round_shifts[r]), r))
+        for rnd in sorted_rounds[:limit]:
             shifts = round_shifts[rnd]
             upvote_count = sum(1 for s in shifts if 'Upvoted' in s.get('evidence', ''))
             downvote_count = sum(1 for s in shifts if 'Downvoted' in s.get('evidence', ''))

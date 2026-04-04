@@ -1724,7 +1724,7 @@ class ReportAgent:
         # Check which MiroClaw sections already exist
         has_evolution = any("evolution" in t or "progress" in t for t in existing_titles_lower)
         has_kg_growth = any("knowledge graph" in t or "graph growth" in t or "triple" in t for t in existing_titles_lower)
-        has_drift = any("drift" in t or "behavior" in t or "stance" in t or "position" in t for t in existing_titles_lower)
+        has_drift = any("drift" in t or "stance drift" in t or "behavioral evolution" in t or "opinion dynamics" in t for t in existing_titles_lower)
 
         sections_to_insert = []
         if not has_evolution:
@@ -1744,6 +1744,10 @@ class ReportAgent:
             ))
 
         if not sections_to_insert:
+            return outline
+
+        # Guard: need at least one section to insert after
+        if not outline.sections:
             return outline
 
         # Insert after the first section (assumed to be Overview)
@@ -1767,13 +1771,14 @@ class ReportAgent:
         title_lower = section_title.lower()
 
         # Check for stance drift / behavioral evolution sections
-        drift_keywords = ["drift", "behavior", "stance", "position", "opinion"]
+        drift_keywords = ["drift", "stance drift", "behavioral evolution", "opinion dynamics"]
         if any(kw in title_lower for kw in drift_keywords):
             return (
                 "【IMPORTANT: This section covers agent behavioral evolution】\n"
                 "You MUST call simulation_position_drift to get authoritative stance drift data.\n"
                 "- First call simulation_position_drift with analysis_type=\"overview\" to get the high-level picture\n"
                 "- Then call simulation_position_drift with analysis_type=\"agent_breakdown\" to get per-agent shift timelines\n"
+                "- Optionally call simulation_position_drift with analysis_type=\"round_summary\" for round-by-round aggregation\n"
                 "- Optionally call simulation_position_drift with analysis_type=\"transition_patterns\" for trigger analysis\n"
                 "Describe HOW agents' positions evolved: who shifted, what triggered shifts, "
                 "which agents were most flexible vs entrenched, and what this means for the prediction."
