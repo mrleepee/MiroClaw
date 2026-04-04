@@ -1817,9 +1817,9 @@ class ReportAgent:
 
         sections_to_insert = []
 
-        # Always ensure "Simulation Evolution" exists (core MiroClaw feature)
+        # Evolution section — only if there's round data
         has_evolution = any("evolution" in t or "progress" in t for t in existing_titles_lower)
-        if not has_evolution:
+        if not has_evolution and mc_results:
             sections_to_insert.append(ReportSection(
                 title="Simulation Evolution Across Rounds",
                 content=""
@@ -1845,7 +1845,7 @@ class ReportAgent:
                 ))
 
         # Calibrated Forecasts — only if oracle forecasts exist
-        has_forecasts = any("forecast" in t or "calibrated" in t or "prediction" in t or "oracle" in t for t in existing_titles_lower)
+        has_forecasts = any("calibrated forecast" in t or "oracle forecast" in t or "probability forecast" in t for t in existing_titles_lower)
         if not has_forecasts and total_oracle > 0:
             sections_to_insert.append(ReportSection(
                 title="Calibrated Forecast Analysis",
@@ -1911,8 +1911,17 @@ class ReportAgent:
                 "Present the forecasts as a structured table with prediction question, probability, and confidence."
             )
 
+        # Check for curation/quality sections
+        if any(kw in title_lower for kw in ["curat", "quality", "voting pattern"]):
+            return (
+                "【IMPORTANT: This section covers curation and quality assessment】\n"
+                "You MUST call miroclaw_phase_analysis with analysis_type=\"voting_patterns\" to get voting data.\n"
+                "Describe how agents voted on each other's triples, which triples were contested, "
+                "and what the voting patterns reveal about evidence quality."
+            )
+
         # Check for simulation evolution / knowledge graph sections
-        evolution_keywords = ["evolution", "progress", "development", "growth", "round", "phase", "knowledge graph"]
+        evolution_keywords = ["evolution", "progress", "round", "phase", "knowledge graph"]
         if not any(kw in title_lower for kw in evolution_keywords):
             return ""
 
