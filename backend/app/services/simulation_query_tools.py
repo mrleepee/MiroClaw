@@ -1108,3 +1108,188 @@ class SimulationDBTools:
             'shifts': shifts[:limit],
         })
         return result.to_text()
+
+    # ── Tool 5: simulation_position_drift ──
+
+    def _load_position_drift(self) -> List[Dict[str, Any]]:
+        """Load position_drift.json from the simulation directory."""
+        drift_path = os.path.join(self.sim_dir, 'position_drift.json')
+        if not os.path.exists(drift_path):
+            return []
+        try:
+            with open(drift_path, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning(f"Failed to load position_drift.json: {e}")
+            return []
+
+    def get_position_drift(
+        self,
+        analysis_type: str = "overview",
+        agent_type: Optional[str] = None,
+        limit: int = 15,
+    ) -> str:
+        """Analyse persisted stance drift data from position_drift.json.
+
+        Provides authoritative stance-shift analysis (not heuristic post-derived drift).
+
+        Args:
+            analysis_type: One of: overview, agent_breakdown, round_summary, transition_patterns
+            agent_type: Optional entity type filter (e.g. "NationalTeam")
+            limit: Max items to return for some views
+        """
+        drift_data = self._load_position_drift()
+        if not drift_data:
+            return "No position drift data found for this simulation."
+
+        # Apply optional filter
+        if agent_type:
+            drift_data = [
+                a for a in drift_data
+                if a.get('entity_type', '').lower() == agent_type.lower()
+            ]
+
+        total_agents = len(drift_data)
+        agents_with_shifts = [a for a in drift_data if a.get('changelog')]
+        total_shift_events = sum(len(a.get('changelog', [])) for a in drift_data)
+
+        if total_shift_events == 0:
+            return (f"No recorded stance shifts found for this simulation. "
+                    f"({total_agents} agents, all remained at their initial stance.)")
+
+        if analysis_type == "overview":
+            return self._drift_overview(drift_data, agents_with_shifts, total_shift_events)
+        elif analysis_type == "agent_breakdown":
+            return self._drift_agent_breakdown(drift_data, agents_with_shifts, limit)
+        elif analysis_type == "round_summary":
+            return self._drift_round_summary(drift_data, limit)
+        elif analysis_type == "transition_patterns":
+            return self._drift_transition_patterns(drift_data)
+        else:
+            return f"Unknown analysis_type: {analysis_type}. Use: overview, agent_breakdown, round_summary, transition_patterns"
+
+    def _drift_overview(self, drift_data, agents_with_shifts, total_shift_events):
+        lines = ["## Stance Drift Overview"]
+        total_agents = len(drift_data)
+
+        # Final stance distribution
+        stance_counts = Counter(a.get('stance', 'unknown') for a in drift_data)
+        lines.append(f"\n**Agents:** {total_agents} total, {len(agents_with_shifts)} with shifts, "
+                     f"{total_agents - len(agents_with_shifts)} stable")
+        lines.append(f"**Total shift events:** {total_shift_events}")
+        lines.append(f"**Final stance distribution:** "
+                     + ", ".join(f"{stance}: {count}" for stance, count in stance_counts.most_common()))
+
+        # Flexibility stats
+        flex_values = [a.get('epistemic_flexibility', 0) for a in drift_data]
+        avg_flex = sum(flex_values) / max(len(flex_values), 1)
+        lines.append(f"**Avg epistemic flexibility:** {avg_flex:.3f}")
+
+        # Top volatile agents
+        sorted_by_shifts = sorted(drift_data, key=lambda a: len(a.get('changelog', [])), reverse=True)
+        lines.append("\n**Most volatile agents:**")
+        for a in sorted_by_shifts[:5]:
+            shifts = len(a.get('changelog', []))
+            if shifts > 0:
+                lines.append(f"  - {a.get('entity_name', a.get('agent_id'))} "
+                            f"({a.get('entity_type', '')}, flex={a.get('epistemic_flexibility', 0):.3f}): "
+                            f"{shifts} shifts, final stance: {a.get('stance', 'unknown')}")
+
+        # Most stable agents
+        stable = [a for a in drift_data if not a.get('changelog')]
+        if stable:
+            lines.append("\n**Stable agents (no shifts):**")
+            for a in stable[:3]:
+                lines.append(f"  - {a.get('entity_name', a.get('agent_id'))} "
+                            f"({a.get('entity_type', '')}, flex={a.get('epistemic_flexibility', 0):.3f}): "
+                            f"stance remained {a.get('stance', 'unknown')}")
+
+        return "\n".join(lines)
+
+    def _drift_agent_breakdown(self, drift_data, agents_with_shifts, limit):
+        lines = ["## Agent Stance Drift Breakdown"]
+        sorted_agents = sorted(drift_data, key=lambda a: len(a.get('changelog', [])), reverse=True)
+
+        for a in sorted_agents[:limit]:
+            name = a.get('entity_name', a.get('agent_id'))
+            changelog = a.get('changelog', [])
+            flex = a.get('epistemic_flexibility', 0)
+            final_stance = a.get('stance', 'unknown')
+
+            lines.append(f"\n### {name} ({a.get('entity_type', '')})")
+            lines.append(f"  Flexibility: {flex:.3f} | Shifts: {len(changelog)} | Final stance: {final_stance}")
+
+            if changelog:
+                # Infer starting stance
+                first_shift = changelog[0].get('shift', '')
+                start_stance = first_shift.split(' -> ')[0] if ' -> ' in first_shift else 'unknown'
+                lines.append(f"  Start stance: {start_stance}")
+
+                # First and last shift
+                first = changelog[0]
+                last = changelog[-1]
+                lines.append(f"  First shift (R{first.get('round', '?')}): {first.get('shift', '?')}")
+                lines.append(f"  Last shift (R{last.get('round', '?')}): {last.get('shift', '?')}")
+
+                # Sample evidence
+                for entry in changelog[:3]:
+                    evidence = _truncate_to_sentence(entry.get('evidence', ''), 120)
+                    lines.append(f"  - R{entry.get('round', '?')}: {entry.get('shift', '?')} — {evidence}")
+
+        return "\n".join(lines)
+
+    def _drift_round_summary(self, drift_data, limit):
+        lines = ["## Stance Drift by Round"]
+
+        # Aggregate shifts per round
+        round_shifts = defaultdict(list)
+        for a in drift_data:
+            for entry in a.get('changelog', []):
+                rnd = entry.get('round', 0)
+                round_shifts[rnd].append({
+                    'agent': a.get('entity_name', a.get('agent_id')),
+                    'shift': entry.get('shift', ''),
+                    'evidence': entry.get('evidence', ''),
+                })
+
+        for rnd in sorted(round_shifts.keys())[:limit]:
+            shifts = round_shifts[rnd]
+            upvote_count = sum(1 for s in shifts if 'Upvoted' in s.get('evidence', ''))
+            downvote_count = sum(1 for s in shifts if 'Downvoted' in s.get('evidence', ''))
+            agents = Counter(s['agent'] for s in shifts)
+
+            lines.append(f"\n**Round {rnd}:** {len(shifts)} shift(s)")
+            lines.append(f"  Triggers: {upvote_count} upvotes, {downvote_count} downvotes")
+            if agents:
+                top_agents = ", ".join(f"{name} ({ct})" for name, ct in agents.most_common(3))
+                lines.append(f"  Top shifting agents: {top_agents}")
+
+        return "\n".join(lines)
+
+    def _drift_transition_patterns(self, drift_data):
+        lines = ["## Stance Transition Patterns"]
+
+        transition_counts = Counter()
+        trigger_counts = Counter()
+
+        for a in drift_data:
+            for entry in a.get('changelog', []):
+                shift = entry.get('shift', '')
+                if shift:
+                    transition_counts[shift] += 1
+
+                evidence = entry.get('evidence', '')
+                if 'Upvoted' in evidence:
+                    trigger_counts['Upvoted triple'] += 1
+                elif 'Downvoted' in evidence:
+                    trigger_counts['Downvoted triple'] += 1
+
+        lines.append("\n**Transition frequency:**")
+        for transition, count in transition_counts.most_common():
+            lines.append(f"  {transition}: {count}")
+
+        lines.append("\n**Evidence triggers:**")
+        for trigger, count in trigger_counts.most_common():
+            lines.append(f"  {trigger}: {count}")
+
+        return "\n".join(lines)

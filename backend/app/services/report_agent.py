@@ -602,6 +602,25 @@ analysis_type options:
 【Returns】
 - Structured round-by-round data with triples, votes, and agent activity"""
 
+TOOL_DESC_SIMULATION_POSITION_DRIFT = """\
+【Stance Drift Analysis — Agent Position Shifts Over Time】
+Analyzes persisted stance drift data from the simulation. Shows how agents' positions evolved across rounds, which agents shifted, what triggered their shifts, and transition patterns.
+
+analysis_type options:
+- "overview": High-level stats — how many agents shifted, final stance distribution, most volatile and most stable agents
+- "agent_breakdown": Per-agent timeline of stance changes with evidence, ordered by volatility
+- "round_summary": Round-by-round aggregation of shift events with trigger analysis (upvotes/downvotes)
+- "transition_patterns": Frequency of each transition type (e.g., neutral -> supportive) and trigger statistics
+
+【When to use】
+- Writing about how agents' opinions or positions evolved during the simulation
+- Identifying which agents were most persuadable or most entrenched
+- Analyzing what triggered stance shifts (e.g., upvoted vs downvoted content)
+- For any section discussing behavioral evolution, persuasion, or opinion dynamics
+
+【Returns】
+- Structured drift data with per-agent changelogs, transition patterns, and evidence"""
+
 TOOL_DESC_INTERVIEW_AGENTS = """\
 【Deep Interview - Real Agent Interviews (Dual Platform)】
 Call the interview API in the OASIS simulation environment to conduct real interviews with running simulated Agents.
@@ -653,7 +672,7 @@ Write a "future forecast report" that answers:
 - ❌ It is not a generic public-opinion summary
 
 【Section count limits】
-- Minimum 3 sections, maximum 5 sections
+- Minimum 3 sections, maximum 6 sections
 - No subsections are needed; each section should directly contain complete content
 - Keep the content concise and focused on core predictive findings
 - Design the section structure yourself based on the forecast results
@@ -812,6 +831,7 @@ This section analyzes...
 - simulation_content_analysis: Analyze themes, engagement trends, content quality, and simulation overview statistics
 - simulation_timeline: Round-by-round activity breakdown, quote chains showing content propagation, and position shift detection
 - miroclaw_phase_analysis: **For MiroClaw simulations** — round-by-round evolution, triples added per round, agent contributions, voting patterns. Use analysis_type="evolution" for simulation progression, "triples" for knowledge graph data, "agent_contributions" for per-agent breakdown, "voting_patterns" for voting analysis.
+- simulation_position_drift: **For stance drift analysis** — how agents' positions evolved, who shifted and why, transition patterns. Use analysis_type="overview" for high-level stats, "agent_breakdown" for per-agent timelines, "round_summary" for round-by-round aggregation, "transition_patterns" for trigger analysis.
 
 **For the first "Overview" section**: Call simulation_content_analysis with analysis_type="overview" to get the full agent roster, then call simulation_content_analysis with analysis_type="engagement" to identify the most active/influential agents. This gives you everything needed to introduce the simulation cast.
 
@@ -1102,6 +1122,15 @@ class ReportAgent:
                 "parameters": {
                     "analysis_type": "One of: evolution, triples, agent_contributions, voting_patterns"
                 }
+            },
+            "simulation_position_drift": {
+                "name": "simulation_position_drift",
+                "description": TOOL_DESC_SIMULATION_POSITION_DRIFT,
+                "parameters": {
+                    "analysis_type": "One of: overview, agent_breakdown, round_summary, transition_patterns",
+                    "agent_type": "Filter by entity type (optional)",
+                    "limit": "Max items (optional, default 15)"
+                }
             }
         }
     
@@ -1220,6 +1249,13 @@ class ReportAgent:
                     analysis_type=parameters.get("analysis_type", "evolution"),
                 )
 
+            elif tool_name == "simulation_position_drift":
+                return self.sim_db_tools.get_position_drift(
+                    analysis_type=parameters.get("analysis_type", "overview"),
+                    agent_type=parameters.get("agent_type"),
+                    limit=int(parameters.get("limit", 15)),
+                )
+
             # ========== Backward-compatible legacy tools (internally redirected to new tools) ==========
             
             elif tool_name == "search_graph":
@@ -1255,7 +1291,7 @@ class ReportAgent:
                 return json.dumps(result, ensure_ascii=False, indent=2)
             
             else:
-                return f"Unknown tool: {tool_name}. Please use one of: insight_forge, panorama_search, quick_search, interview_agents, simulation_posts, simulation_debates, simulation_content_analysis, simulation_timeline"
+                return f"Unknown tool: {tool_name}. Please use one of: insight_forge, panorama_search, quick_search, interview_agents, simulation_posts, simulation_debates, simulation_content_analysis, simulation_timeline, simulation_position_drift"
                 
         except Exception as e:
             logger.error(f"Tool execution failed: {tool_name}, error: {str(e)}")
@@ -1460,7 +1496,7 @@ class ReportAgent:
     VALID_TOOL_NAMES = {
         "insight_forge", "panorama_search", "quick_search", "interview_agents",
         "simulation_posts", "simulation_debates", "simulation_content_analysis", "simulation_timeline",
-        "miroclaw_phase_analysis"
+        "miroclaw_phase_analysis", "simulation_position_drift"
     }
 
     def _parse_tool_calls(self, response: str) -> List[Dict[str, Any]]:
@@ -1613,8 +1649,9 @@ class ReportAgent:
                 "1. \"Simulation Overview\" — agents, roles, stances, simulation scale\n"
                 "2. \"Simulation Evolution\" — HOW the simulation progressed across rounds (seed-based vs research-enhanced)\n"
                 "3. \"Knowledge Graph Growth\" — which triples were added, evidence accumulation, voting patterns\n"
-                "4. One additional section for core predictive findings, trends, or risks\n"
-                "Total: 4 sections minimum. You may add a 5th if needed."
+                "4. \"Agent Behavioral Evolution\" — stance drift analysis, which agents shifted positions and why, persuasion dynamics\n"
+                "5. One additional section for core predictive findings, trends, or risks\n"
+                "Total: 5 sections minimum. You may add a 6th if needed."
             )
 
         try:
@@ -1675,8 +1712,9 @@ class ReportAgent:
     def _ensure_miroclaw_sections(self, outline: ReportOutline) -> ReportOutline:
         """Ensure the outline includes MiroClaw-specific sections if this is a phased simulation.
 
-        Inserts 'Simulation Evolution' and 'Knowledge Graph Growth' sections
-        after the first 'Overview' section if they don't already exist.
+        Inserts 'Simulation Evolution', 'Knowledge Graph Growth', and
+        'Agent Behavioral Evolution' sections after the first 'Overview' section
+        if they don't already exist.
         """
         if not self._is_miroclaw_simulation():
             return outline
@@ -1686,6 +1724,7 @@ class ReportAgent:
         # Check which MiroClaw sections already exist
         has_evolution = any("evolution" in t or "progress" in t for t in existing_titles_lower)
         has_kg_growth = any("knowledge graph" in t or "graph growth" in t or "triple" in t for t in existing_titles_lower)
+        has_drift = any("drift" in t or "behavior" in t or "stance" in t or "position" in t for t in existing_titles_lower)
 
         sections_to_insert = []
         if not has_evolution:
@@ -1698,6 +1737,11 @@ class ReportAgent:
                 title="Knowledge Graph Growth and Evidence Accumulation",
                 content=""
             ))
+        if not has_drift:
+            sections_to_insert.append(ReportSection(
+                title="Agent Behavioral Evolution and Stance Drift",
+                content=""
+            ))
 
         if not sections_to_insert:
             return outline
@@ -1707,20 +1751,35 @@ class ReportAgent:
         new_sections.extend(sections_to_insert)
         new_sections.extend(outline.sections[1:])
 
-        # Cap at 5 sections max (remove last if needed)
-        if len(new_sections) > 5:
-            new_sections = new_sections[:5]
+        # Cap at 6 sections max (remove last if needed)
+        if len(new_sections) > 6:
+            new_sections = new_sections[:6]
 
         outline.sections = new_sections
         logger.info(f"Inserted {len(sections_to_insert)} MiroClaw sections into outline")
         return outline
 
     def _get_miroclaw_section_hint(self, section_title: str) -> str:
-        """Return MiroClaw-specific guidance for sections about simulation evolution."""
+        """Return MiroClaw-specific guidance for sections about simulation evolution or agent behavior."""
         if not self._is_miroclaw_simulation():
             return ""
 
         title_lower = section_title.lower()
+
+        # Check for stance drift / behavioral evolution sections
+        drift_keywords = ["drift", "behavior", "stance", "position", "opinion"]
+        if any(kw in title_lower for kw in drift_keywords):
+            return (
+                "【IMPORTANT: This section covers agent behavioral evolution】\n"
+                "You MUST call simulation_position_drift to get authoritative stance drift data.\n"
+                "- First call simulation_position_drift with analysis_type=\"overview\" to get the high-level picture\n"
+                "- Then call simulation_position_drift with analysis_type=\"agent_breakdown\" to get per-agent shift timelines\n"
+                "- Optionally call simulation_position_drift with analysis_type=\"transition_patterns\" for trigger analysis\n"
+                "Describe HOW agents' positions evolved: who shifted, what triggered shifts, "
+                "which agents were most flexible vs entrenched, and what this means for the prediction."
+            )
+
+        # Check for simulation evolution / knowledge graph sections
         evolution_keywords = ["evolution", "progress", "development", "growth", "round", "phase", "knowledge graph"]
         if not any(kw in title_lower for kw in evolution_keywords):
             return ""
@@ -1813,7 +1872,7 @@ class ReportAgent:
         all_tools = {
             "insight_forge", "panorama_search", "quick_search", "interview_agents",
             "simulation_posts", "simulation_debates", "simulation_content_analysis", "simulation_timeline",
-            "miroclaw_phase_analysis"
+            "miroclaw_phase_analysis", "simulation_position_drift"
         }
 
         # Report context, used for InsightForge sub-question generation
