@@ -648,6 +648,27 @@ Workflow:
 
 【Important】The OASIS simulation environment must be running to use this feature."""
 
+TOOL_DESC_SIMULATION_ORACLE_FORECASTS = """\
+【Oracle Forecasts — Calibrated Probability Predictions】
+Analyzes persisted oracle forecast data from the simulation. Shows calibrated probability estimates on domain-specific questions, grouped by question, agent, or tracked across rounds.
+
+analysis_type options:
+- "overview": Total forecasts, probability distribution, unique questions with average probabilities, agent breakdown
+- "by_question": Each prediction question with per-agent probability estimates and reasoning — shows consensus vs disagreement
+- "by_agent": Per-agent forecast history across rounds
+- "evolution": Tracks how forecasts on specific questions changed across rounds — shows direction and magnitude of shifts
+
+【When to use】
+- Writing about calibrated predictions or probability estimates from the simulation
+- Comparing agent forecasts against each other or against market odds
+- Tracking how predictions evolved or converged across oracle phases
+- For any section about forecasts, predictions, or probability analysis
+
+【Returns】
+- Structured forecast data with questions, probabilities, reasoning, agent attribution, and round tracking"""
+
+# ── Outline planning prompt ──
+
 # ── Outline planning prompt ──
 
 PLAN_SYSTEM_PROMPT = """\
@@ -832,6 +853,7 @@ This section analyzes...
 - simulation_timeline: Round-by-round activity breakdown, quote chains showing content propagation, and position shift detection
 - miroclaw_phase_analysis: **For MiroClaw simulations** — round-by-round evolution, triples added per round, agent contributions, voting patterns. Use analysis_type="evolution" for simulation progression, "triples" for knowledge graph data, "agent_contributions" for per-agent breakdown, "voting_patterns" for voting analysis.
 - simulation_position_drift: **For stance drift analysis** — how agents' positions evolved, who shifted and why, transition patterns. Use analysis_type="overview" for high-level stats, "agent_breakdown" for per-agent timelines, "round_summary" for round-by-round aggregation, "transition_patterns" for trigger analysis.
+- simulation_oracle_forecasts: **For oracle forecast analysis** — calibrated probability predictions, consensus vs disagreement, forecast evolution. Use analysis_type="overview" for high-level stats, "by_question" for per-question breakdown with reasoning, "by_agent" for per-agent forecast history, "evolution" for tracking forecast changes across rounds.
 
 **For the first "Overview" section**: Call simulation_content_analysis with analysis_type="overview" to get the full agent roster, then call simulation_content_analysis with analysis_type="engagement" to identify the most active/influential agents. This gives you everything needed to introduce the simulation cast.
 
@@ -1131,6 +1153,15 @@ class ReportAgent:
                     "agent_type": "Filter by entity type (optional)",
                     "limit": "Max items (optional, default 15)"
                 }
+            },
+            "simulation_oracle_forecasts": {
+                "name": "simulation_oracle_forecasts",
+                "description": TOOL_DESC_SIMULATION_ORACLE_FORECASTS,
+                "parameters": {
+                    "analysis_type": "One of: overview, by_question, by_agent, evolution",
+                    "agent_type": "Filter by entity type (optional)",
+                    "limit": "Max items (optional, default 20)"
+                }
             }
         }
     
@@ -1256,6 +1287,13 @@ class ReportAgent:
                     limit=int(parameters.get("limit", 15)),
                 )
 
+            elif tool_name == "simulation_oracle_forecasts":
+                return self.sim_db_tools.get_oracle_forecasts(
+                    analysis_type=parameters.get("analysis_type", "overview"),
+                    agent_type=parameters.get("agent_type"),
+                    limit=int(parameters.get("limit", 20)),
+                )
+
             # ========== Backward-compatible legacy tools (internally redirected to new tools) ==========
             
             elif tool_name == "search_graph":
@@ -1291,7 +1329,7 @@ class ReportAgent:
                 return json.dumps(result, ensure_ascii=False, indent=2)
             
             else:
-                return f"Unknown tool: {tool_name}. Please use one of: insight_forge, panorama_search, quick_search, interview_agents, simulation_posts, simulation_debates, simulation_content_analysis, simulation_timeline, simulation_position_drift"
+                return f"Unknown tool: {tool_name}. Please use one of: insight_forge, panorama_search, quick_search, interview_agents, simulation_posts, simulation_debates, simulation_content_analysis, simulation_timeline, simulation_position_drift, simulation_oracle_forecasts"
                 
         except Exception as e:
             logger.error(f"Tool execution failed: {tool_name}, error: {str(e)}")
@@ -1496,7 +1534,7 @@ class ReportAgent:
     VALID_TOOL_NAMES = {
         "insight_forge", "panorama_search", "quick_search", "interview_agents",
         "simulation_posts", "simulation_debates", "simulation_content_analysis", "simulation_timeline",
-        "miroclaw_phase_analysis", "simulation_position_drift"
+        "miroclaw_phase_analysis", "simulation_position_drift", "simulation_oracle_forecasts"
     }
 
     def _parse_tool_calls(self, response: str) -> List[Dict[str, Any]]:
@@ -1746,7 +1784,7 @@ class ReportAgent:
         if total_oracle > 0:
             lines.append(
                 f"- \"Calibrated Forecasts\": {total_oracle} oracle forecasts generated. "
-                "Read oracle_forecasts.json for probability estimates."
+                "Use simulation_oracle_forecasts with analysis_type=\"overview\"."
             )
 
         # Curator — only if curator was active
@@ -1906,9 +1944,11 @@ class ReportAgent:
         if any(kw in title_lower for kw in forecast_keywords):
             return (
                 "【IMPORTANT: This section covers calibrated forecasts】\n"
-                "Read the oracle_forecasts.json file from the simulation directory to get probability estimates.\n"
-                "You can also call simulation_content_analysis with analysis_type=\"overview\" for context.\n"
-                "Present the forecasts as a structured table with prediction question, probability, and confidence."
+                "You MUST call simulation_oracle_forecasts to get authoritative forecast data.\n"
+                "- First call simulation_oracle_forecasts with analysis_type=\"overview\" for the high-level picture\n"
+                "- Then call simulation_oracle_forecasts with analysis_type=\"by_question\" for per-question breakdowns with agent reasoning\n"
+                "- Optionally call simulation_oracle_forecasts with analysis_type=\"evolution\" to track how forecasts changed across rounds\n"
+                "Present forecasts with probabilities, reasoning, and note consensus vs disagreement across agents."
             )
 
         # Check for curation/quality sections
@@ -2013,7 +2053,7 @@ class ReportAgent:
         all_tools = {
             "insight_forge", "panorama_search", "quick_search", "interview_agents",
             "simulation_posts", "simulation_debates", "simulation_content_analysis", "simulation_timeline",
-            "miroclaw_phase_analysis", "simulation_position_drift"
+            "miroclaw_phase_analysis", "simulation_position_drift", "simulation_oracle_forecasts"
         }
 
         # Report context, used for InsightForge sub-question generation

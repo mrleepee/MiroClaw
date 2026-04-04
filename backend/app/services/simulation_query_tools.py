@@ -1299,3 +1299,213 @@ class SimulationDBTools:
             lines.append(f"  {trigger}: {count}")
 
         return "\n".join(lines)
+
+    # ── Tool 6: simulation_oracle_forecasts ──
+
+    def _load_oracle_forecasts(self) -> List[Dict[str, Any]]:
+        """Load oracle_forecasts.json from the simulation directory."""
+        forecast_path = os.path.join(self.sim_dir, 'oracle_forecasts.json')
+        if not os.path.exists(forecast_path):
+            return []
+        try:
+            with open(forecast_path, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning(f"Failed to load oracle_forecasts.json: {e}")
+            return []
+
+    def get_oracle_forecasts(
+        self,
+        analysis_type: str = "overview",
+        agent_type: Optional[str] = None,
+        limit: int = 20,
+    ) -> str:
+        """Analyse persisted oracle forecast data from oracle_forecasts.json.
+
+        Provides authoritative forecast analysis including probability estimates,
+        consensus/disagreement detection, and forecast evolution across rounds.
+
+        Args:
+            analysis_type: One of: overview, by_question, by_agent, evolution
+            agent_type: Optional entity type filter
+            limit: Max items to return
+        """
+        forecasts = self._load_oracle_forecasts()
+        if not forecasts:
+            return "No oracle forecast data found for this simulation."
+
+        # Enrich with agent info
+        for fc in forecasts:
+            agent_id = fc.get('agent_id')
+            if agent_id is not None:
+                try:
+                    aid = int(agent_id)
+                except (ValueError, TypeError):
+                    aid = 0
+                info = self._get_agent_info(aid)
+                fc['entity_type'] = info.get('entity_type', 'Unknown')
+                fc['entity_name'] = info.get('name', f'Agent_{aid}')
+
+        # Apply optional filter
+        if agent_type:
+            filtered = [
+                fc for fc in forecasts
+                if fc.get('entity_type', '').lower() == agent_type.lower()
+            ]
+            if not filtered:
+                return f"No oracle forecasts found for entity type '{agent_type}'."
+            forecasts = filtered
+
+        if analysis_type == "overview":
+            return self._forecast_overview(forecasts)
+        elif analysis_type == "by_question":
+            return self._forecast_by_question(forecasts, limit)
+        elif analysis_type == "by_agent":
+            return self._forecast_by_agent(forecasts, limit)
+        elif analysis_type == "evolution":
+            return self._forecast_evolution(forecasts, limit)
+        else:
+            return f"Unknown analysis_type: {analysis_type}. Use: overview, by_question, by_agent, evolution"
+
+    def _forecast_overview(self, forecasts: List[Dict]) -> str:
+        lines = ["## Oracle Forecast Overview"]
+        lines.append(f"**Total forecasts:** {len(forecasts)}")
+        lines.append(f"**Forecasting agents:** {len(set(fc.get('agent_id') for fc in forecasts))}")
+        lines.append(f"**Rounds with forecasts:** {len(set(fc.get('round') for fc in forecasts))}")
+
+        # Probability distribution
+        probs = [fc.get('probability', 0) for fc in forecasts if fc.get('probability') is not None]
+        if probs:
+            avg_prob = sum(probs) / len(probs)
+            high_conf = sum(1 for p in probs if p >= 0.7)
+            low_conf = sum(1 for p in probs if p <= 0.3)
+            mid_conf = len(probs) - high_conf - low_conf
+            lines.append(f"\n**Probability distribution:**")
+            lines.append(f"  Average: {avg_prob:.2f}")
+            lines.append(f"  High confidence (>70%): {high_conf}")
+            lines.append(f"  Medium (30-70%): {mid_conf}")
+            lines.append(f"  Low confidence (<30%): {low_conf}")
+
+        # Top unique questions
+        questions = list(dict.fromkeys(fc.get('question', '') for fc in forecasts if fc.get('question')))
+        lines.append(f"\n**Unique prediction questions:** {len(questions)}")
+        for q in questions[:10]:
+            matching = [fc for fc in forecasts if fc.get('question') == q]
+            avg_p = sum(fc.get('probability', 0) for fc in matching) / len(matching)
+            lines.append(f"  - {q}")
+            lines.append(f"    Average probability: {avg_p:.0%} across {len(matching)} forecasts")
+
+        # Agent breakdown
+        agent_forecasts = defaultdict(list)
+        for fc in forecasts:
+            agent_forecasts[fc.get('entity_name', fc.get('agent_id', '?'))].append(fc)
+        lines.append(f"\n**Forecasts by agent:**")
+        for agent, fcs in sorted(agent_forecasts.items()):
+            avg_p = sum(fc.get('probability', 0) for fc in fcs) / len(fcs)
+            lines.append(f"  - {agent} ({fcs[0].get('entity_type', '?')}): {len(fcs)} forecasts, avg probability {avg_p:.0%}")
+
+        return "\n".join(lines)
+
+    def _forecast_by_question(self, forecasts: List[Dict], limit: int) -> str:
+        lines = ["## Oracle Forecasts by Question"]
+
+        # Group by question
+        by_question = defaultdict(list)
+        for fc in forecasts:
+            q = fc.get('question', 'Unknown')
+            by_question[q].append(fc)
+
+        for i, (question, fcs) in enumerate(by_question.items()):
+            if i >= limit:
+                break
+            lines.append(f"\n### {question}")
+            probs = [fc.get('probability', 0) for fc in fcs]
+            avg_p = sum(probs) / len(probs)
+            min_p = min(probs)
+            max_p = max(probs)
+            spread = max_p - min_p
+
+            lines.append(f"  Average: {avg_p:.0%} | Range: {min_p:.0%}-{max_p:.0%} | Spread: {spread:.0%} | {len(fcs)} forecasts")
+
+            # Show individual agent forecasts sorted by probability
+            sorted_fcs = sorted(fcs, key=lambda x: -x.get('probability', 0))
+            for fc in sorted_fcs[:8]:
+                name = fc.get('entity_name', fc.get('agent_id', '?'))
+                prob = fc.get('probability', 0)
+                reasoning = _truncate_to_sentence(fc.get('reasoning', ''), 200)
+                lines.append(f"  - **{name}** ({fc.get('entity_type', '?')}): {prob:.0%} — {reasoning}")
+
+        return "\n".join(lines)
+
+    def _forecast_by_agent(self, forecasts: List[Dict], limit: int) -> str:
+        lines = ["## Oracle Forecasts by Agent"]
+
+        by_agent = defaultdict(list)
+        for fc in forecasts:
+            by_agent[fc.get('entity_name', fc.get('agent_id', '?'))].append(fc)
+
+        for i, (agent, fcs) in enumerate(sorted(by_agent.items())):
+            if i >= limit:
+                break
+            etype = fcs[0].get('entity_type', '?')
+            lines.append(f"\n### {agent} ({etype})")
+            lines.append(f"  {len(fcs)} forecasts across {len(set(fc.get('round') for fc in fcs))} rounds")
+
+            # Show forecasts sorted by round
+            for fc in sorted(fcs, key=lambda x: x.get('round', 0)):
+                q = _truncate_to_sentence(fc.get('question', ''), 150)
+                prob = fc.get('probability', 0)
+                lines.append(f"  - R{fc.get('round', '?')}: {prob:.0%} — {q}")
+
+        return "\n".join(lines)
+
+    def _forecast_evolution(self, forecasts: List[Dict], limit: int) -> str:
+        lines = ["## Oracle Forecast Evolution Across Rounds"]
+
+        by_round = defaultdict(list)
+        for fc in forecasts:
+            rnd = fc.get('round', 0)
+            by_round[rnd].append(fc)
+
+        sorted_rounds = sorted(by_round.keys())
+        lines.append(f"\n**Forecast activity by round:**")
+        for rnd in sorted_rounds:
+            fcs = by_round[rnd]
+            probs = [fc.get('probability', 0) for fc in fcs]
+            avg_p = sum(probs) / len(probs)
+            lines.append(f"  Round {rnd}: {len(fcs)} forecasts, avg probability {avg_p:.0%}")
+
+        # Track specific questions across rounds
+        by_question_round = defaultdict(lambda: defaultdict(list))
+        for fc in forecasts:
+            q = fc.get('question', '')
+            rnd = fc.get('round', 0)
+            by_question_round[q][rnd].append(fc)
+
+        lines.append(f"\n**Forecast evolution by question:**")
+        tracked = 0
+        for q, round_fcs in by_question_round.items():
+            if len(round_fcs) < 2:
+                continue  # Only track questions with forecasts in multiple rounds
+            if tracked >= limit:
+                break
+            tracked += 1
+
+            lines.append(f"\n  **{q}**")
+            for rnd in sorted(round_fcs.keys()):
+                fcs = round_fcs[rnd]
+                avg_p = sum(fc.get('probability', 0) for fc in fcs) / len(fcs)
+                agents = ", ".join(set(fc.get('entity_name', fc.get('agent_id', '?')) for fc in fcs))
+                lines.append(f"    R{rnd}: {avg_p:.0%} ({len(fcs)} forecasts by {agents})")
+
+            # Direction
+            first_rnd = sorted(round_fcs.keys())[0]
+            last_rnd = sorted(round_fcs.keys())[-1]
+            first_avg = sum(fc.get('probability', 0) for fc in round_fcs[first_rnd]) / len(round_fcs[first_rnd])
+            last_avg = sum(fc.get('probability', 0) for fc in round_fcs[last_rnd]) / len(round_fcs[last_rnd])
+            delta = last_avg - first_avg
+            if abs(delta) > 0.05:
+                direction = "increased" if delta > 0 else "decreased"
+                lines.append(f"    Direction: {direction} by {abs(delta):.0%} from R{first_rnd} to R{last_rnd}")
+
+        return "\n".join(lines)
