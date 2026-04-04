@@ -1606,6 +1606,7 @@ class ReportAgent:
 
         # Detect MiroClaw phased simulation data
         miroclaw_context = ""
+        mc_results = []
         miroclaw_results_path = os.path.join(
             Config.UPLOAD_FOLDER, 'simulations', self.simulation_id, 'miroclaw_results.json'
         )
@@ -1622,9 +1623,6 @@ class ReportAgent:
                     f"Total triples added to knowledge graph: {total_triples}\n"
                     f"Total votes cast: {total_votes}\n"
                     f"Round-by-round breakdown: {json.dumps(mc_results, ensure_ascii=False)}\n"
-                    f"\nYou MUST include sections covering:\n"
-                    f"1. How the simulation EVOLVED across rounds (what changed between early seed-based rounds and later research-enhanced rounds)\n"
-                    f"2. Knowledge Graph Growth (which triples were added, voting patterns, evidence accumulation)\n"
                 )
                 logger.info(f"Detected MiroClaw phased data: {len(mc_results)} rounds, {total_triples} triples")
             except Exception as e:
@@ -1640,18 +1638,20 @@ class ReportAgent:
             related_facts_json=json.dumps(context.get('related_facts', [])[:10], ensure_ascii=False, indent=2),
         )
 
-        # For MiroClaw simulations, inject mandatory section requirements
+        # For MiroClaw simulations, inject data-driven section guidance
         if miroclaw_context:
             user_prompt += miroclaw_context
+
+            # Analyze simulation characteristics to determine which sections are warranted
+            section_guidance = self._build_data_driven_sections(mc_results)
+
             user_prompt += (
-                "\n\n【MANDATORY SECTIONS for this MiroClaw simulation】\n"
-                "You MUST include these sections in your outline:\n"
-                "1. \"Simulation Overview\" — agents, roles, stances, simulation scale\n"
-                "2. \"Simulation Evolution\" — HOW the simulation progressed across rounds (seed-based vs research-enhanced)\n"
-                "3. \"Knowledge Graph Growth\" — which triples were added, evidence accumulation, voting patterns\n"
-                "4. \"Agent Behavioral Evolution\" — stance drift analysis, which agents shifted positions and why, persuasion dynamics\n"
-                "5. One additional section for core predictive findings, trends, or risks\n"
-                "Total: 5 sections minimum. You may add a 6th if needed."
+                f"\n\n【SECTION GUIDANCE for this MiroClaw simulation】\n"
+                f"The first section MUST be a \"Simulation Overview\" (agents, roles, stances, scale).\n"
+                f"After that, design sections based on the simulation's ACTUAL characteristics:\n"
+                f"{section_guidance}\n"
+                f"You choose the best section titles — adapt them to the domain and simulation dynamics.\n"
+                f"Total: 3-6 sections. Only include sections where the data is meaningful."
             )
 
         try:
@@ -1702,6 +1702,86 @@ class ReportAgent:
                 ]
             )
     
+    def _build_data_driven_sections(self, mc_results: list) -> str:
+        """Build section guidance based on actual simulation data characteristics.
+
+        Returns a string describing which section topics are warranted by the data,
+        so the LLM can craft appropriate section titles instead of using a fixed template.
+        """
+        lines = []
+
+        # Count core metrics
+        total_triples = sum(r.get("triples_added", 0) for r in mc_results)
+        total_votes = sum(r.get("votes_cast", 0) for r in mc_results)
+        total_curator = sum(r.get("curator_actions", 0) for r in mc_results)
+        total_oracle = sum(r.get("oracle_forecasts", 0) for r in mc_results)
+        num_rounds = len(mc_results)
+
+        # Always relevant for MiroClaw — how the simulation evolved
+        lines.append(
+            "- \"Simulation Evolution\": How the simulation progressed across rounds. "
+            f"({num_rounds} rounds, seed-based → research-enhanced reasoning). "
+            "Use miroclaw_phase_analysis with analysis_type=\"evolution\"."
+        )
+
+        # Knowledge graph — only if there are meaningful triples
+        if total_triples > 0:
+            lines.append(
+                f"- \"Knowledge Graph Growth\": {total_triples} triples added, "
+                f"{total_votes} votes cast. "
+                "Use miroclaw_phase_analysis with analysis_type=\"triples\"."
+            )
+
+        # Stance drift — check if position_drift.json has actual shifts
+        drift_data = self.sim_db_tools._load_position_drift()
+        if drift_data:
+            agents_with_shifts = [a for a in drift_data if a.get('changelog')]
+            if agents_with_shifts:
+                lines.append(
+                    f"- \"Agent Behavioral Evolution\": {len(agents_with_shifts)}/{len(drift_data)} agents "
+                    "shifted stance. Use simulation_position_drift with analysis_type=\"overview\"."
+                )
+
+        # Oracle forecasts — only if there are forecasts
+        if total_oracle > 0:
+            lines.append(
+                f"- \"Calibrated Forecasts\": {total_oracle} oracle forecasts generated. "
+                "Read oracle_forecasts.json for probability estimates."
+            )
+
+        # Curator — only if curator was active
+        if total_curator > 0:
+            lines.append(
+                f"- \"Curation and Quality\": {total_curator} curator actions. "
+                "Use miroclaw_phase_analysis with analysis_type=\"voting_patterns\"."
+            )
+
+        # Domain-specific suggestions based on simulation requirement keywords
+        req_lower = self.simulation_requirement.lower()
+        if any(kw in req_lower for kw in ["election", "vote", "political", "democracy", "regime"]):
+            lines.append(
+                "- Consider a section on electoral dynamics, political polarization, or regime stability."
+            )
+        elif any(kw in req_lower for kw in ["war", "conflict", "invasion", "military", "crisis"]):
+            lines.append(
+                "- Consider a section on geopolitical escalation dynamics, deterrence, or alliance responses."
+            )
+        elif any(kw in req_lower for kw in ["recession", "economy", "tariff", "trade", "market"]):
+            lines.append(
+                "- Consider a section on economic contagion, market reactions, or policy effectiveness."
+            )
+        elif any(kw in req_lower for kw in ["sport", "cup", "tournament", "championship", "world cup"]):
+            lines.append(
+                "- Consider a section on tournament dynamics, competitive advantage, or fan reactions."
+            )
+
+        # Always suggest a findings/conclusions section
+        lines.append(
+            "- Include a section for core predictive findings, risks, or conclusions."
+        )
+
+        return "\n".join(lines)
+
     def _is_miroclaw_simulation(self) -> bool:
         """Check if this simulation has MiroClaw phased data."""
         miroclaw_results_path = os.path.join(
@@ -1710,36 +1790,73 @@ class ReportAgent:
         return os.path.exists(miroclaw_results_path)
 
     def _ensure_miroclaw_sections(self, outline: ReportOutline) -> ReportOutline:
-        """Ensure the outline includes MiroClaw-specific sections if this is a phased simulation.
+        """Ensure the outline includes data-warranted MiroClaw sections.
 
-        Inserts 'Simulation Evolution', 'Knowledge Graph Growth', and
-        'Agent Behavioral Evolution' sections after the first 'Overview' section
-        if they don't already exist.
+        Instead of inserting a fixed set of sections, reads simulation data
+        characteristics and only inserts sections that have meaningful data.
         """
         if not self._is_miroclaw_simulation():
             return outline
 
         existing_titles_lower = {s.title.lower() for s in outline.sections}
 
-        # Check which MiroClaw sections already exist
-        has_evolution = any("evolution" in t or "progress" in t for t in existing_titles_lower)
-        has_kg_growth = any("knowledge graph" in t or "graph growth" in t or "triple" in t for t in existing_titles_lower)
-        has_drift = any("drift" in t or "stance drift" in t or "behavioral evolution" in t or "opinion dynamics" in t for t in existing_titles_lower)
+        # Load simulation characteristics
+        mc_results_path = os.path.join(
+            Config.UPLOAD_FOLDER, 'simulations', self.simulation_id, 'miroclaw_results.json'
+        )
+        mc_results = []
+        try:
+            with open(mc_results_path, 'r') as f:
+                mc_results = json.load(f)
+        except Exception:
+            pass
+
+        total_triples = sum(r.get("triples_added", 0) for r in mc_results)
+        total_curator = sum(r.get("curator_actions", 0) for r in mc_results)
+        total_oracle = sum(r.get("oracle_forecasts", 0) for r in mc_results)
 
         sections_to_insert = []
-        if not has_evolution:
+
+        # Evolution section — only if there's round data
+        has_evolution = any("evolution" in t or "progress" in t for t in existing_titles_lower)
+        if not has_evolution and mc_results:
             sections_to_insert.append(ReportSection(
                 title="Simulation Evolution Across Rounds",
                 content=""
             ))
-        if not has_kg_growth:
+
+        # Knowledge Graph Growth — only if triples were added
+        has_kg_growth = any("knowledge graph" in t or "graph growth" in t or "triple" in t for t in existing_titles_lower)
+        if not has_kg_growth and total_triples > 0:
             sections_to_insert.append(ReportSection(
                 title="Knowledge Graph Growth and Evidence Accumulation",
                 content=""
             ))
+
+        # Agent Behavioral Evolution — only if agents actually shifted stance
+        has_drift = any("drift" in t or "stance drift" in t or "behavioral evolution" in t or "opinion dynamics" in t for t in existing_titles_lower)
         if not has_drift:
+            drift_data = self.sim_db_tools._load_position_drift()
+            agents_with_shifts = [a for a in drift_data if a.get('changelog')]
+            if agents_with_shifts:
+                sections_to_insert.append(ReportSection(
+                    title="Agent Behavioral Evolution and Stance Drift",
+                    content=""
+                ))
+
+        # Calibrated Forecasts — only if oracle forecasts exist
+        has_forecasts = any("calibrated forecast" in t or "oracle forecast" in t or "probability forecast" in t for t in existing_titles_lower)
+        if not has_forecasts and total_oracle > 0:
             sections_to_insert.append(ReportSection(
-                title="Agent Behavioral Evolution and Stance Drift",
+                title="Calibrated Forecast Analysis",
+                content=""
+            ))
+
+        # Curator — only if curator was active
+        has_curation = any("curat" in t or "quality" in t for t in existing_titles_lower)
+        if not has_curation and total_curator > 0:
+            sections_to_insert.append(ReportSection(
+                title="Curation and Quality Assessment",
                 content=""
             ))
 
@@ -1764,7 +1881,7 @@ class ReportAgent:
         return outline
 
     def _get_miroclaw_section_hint(self, section_title: str) -> str:
-        """Return MiroClaw-specific guidance for sections about simulation evolution or agent behavior."""
+        """Return MiroClaw-specific guidance based on section title keywords."""
         if not self._is_miroclaw_simulation():
             return ""
 
@@ -1784,8 +1901,27 @@ class ReportAgent:
                 "which agents were most flexible vs entrenched, and what this means for the prediction."
             )
 
+        # Check for forecast / calibrated prediction sections
+        forecast_keywords = ["forecast", "calibrated", "prediction", "oracle", "probability"]
+        if any(kw in title_lower for kw in forecast_keywords):
+            return (
+                "【IMPORTANT: This section covers calibrated forecasts】\n"
+                "Read the oracle_forecasts.json file from the simulation directory to get probability estimates.\n"
+                "You can also call simulation_content_analysis with analysis_type=\"overview\" for context.\n"
+                "Present the forecasts as a structured table with prediction question, probability, and confidence."
+            )
+
+        # Check for curation/quality sections
+        if any(kw in title_lower for kw in ["curat", "quality", "voting pattern"]):
+            return (
+                "【IMPORTANT: This section covers curation and quality assessment】\n"
+                "You MUST call miroclaw_phase_analysis with analysis_type=\"voting_patterns\" to get voting data.\n"
+                "Describe how agents voted on each other's triples, which triples were contested, "
+                "and what the voting patterns reveal about evidence quality."
+            )
+
         # Check for simulation evolution / knowledge graph sections
-        evolution_keywords = ["evolution", "progress", "development", "growth", "round", "phase", "knowledge graph"]
+        evolution_keywords = ["evolution", "progress", "round", "phase", "knowledge graph"]
         if not any(kw in title_lower for kw in evolution_keywords):
             return ""
 
